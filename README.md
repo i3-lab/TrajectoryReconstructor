@@ -1,7 +1,6 @@
 Locator
 ==============
-Slicer Module for MR tracking experiment.
-
+Slicer Module for MR tracking and trajectory reconstruction.
 
 Prerequisite
 ============

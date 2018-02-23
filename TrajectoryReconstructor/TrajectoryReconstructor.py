@@ -9,19 +9,19 @@ import CurveMaker
 #
 # Locator
 #
-class CatheterReconstructor(ScriptedLoadableModule):
+class TrajectoryReconstructor(ScriptedLoadableModule):
   """Uses ScriptedLoadableModule base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
-    self.parent.title = "CatheterReconstructor" # TODO make this more human readable by adding spaces
+    self.parent.title = "TrajectoryReconstructor" # TODO make this more human readable by adding spaces
     self.parent.categories = ["IGT"]
     self.parent.dependencies = ["Sequences"]
     self.parent.contributors = ["Longquan Chen(BWH), Junichi Tokuda(BWH)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
-    Catheter path reconstruction based on tracking data.
+    Trajectory path reconstruction based on tracking data.
     """
     self.parent.acknowledgementText = """
     This work is supported by NIH National Center for Image Guided Therapy (P41EB015898).
@@ -31,9 +31,9 @@ class CatheterReconstructor(ScriptedLoadableModule):
 
 #------------------------------------------------------------
 #
-# CatheterReconstructorWidget
+# TrajectoryReconstructorWidget
 #
-class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
+class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
@@ -42,7 +42,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     ScriptedLoadableModuleWidget.setup(self)
     # Instantiate and connect widgets ...
 
-    self.logic = CatheterReconstructorLogic(None)
+    self.logic = TrajectoryReconstructorLogic(None)
     self.logic.setWidget(self)
     self.nLocators = 5
 
@@ -106,17 +106,17 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     #
     # Connector Create and Interaction
     #
-    openIGTLinkIFWidget = slicer.modules.openigtlinkif.widgetRepresentation()
-    connectorCollapsibleButton = None
-    for child in openIGTLinkIFWidget.children():
+    self.openIGTLinkIFWidget = slicer.modules.openigtlinkif.widgetRepresentation()
+    self.connectorCollapsibleButton = None
+    for child in self.openIGTLinkIFWidget.children():
       if child.className() == 'ctkCollapsibleButton':
         if child.text == 'Connectors':
-          connectorCollapsibleButton = child
-    if connectorCollapsibleButton is None:
+          self.connectorCollapsibleButton = child
+    if self.connectorCollapsibleButton is None:
       return slicer.util.warningDisplay(
         "Error: Could not load OpenIGTLink widget. either Extension is missing or the API of OpenIGTLink is changed.")
     else:
-      self.layout.addWidget(connectorCollapsibleButton)
+      self.layout.addWidget(self.connectorCollapsibleButton)
     #
     # Registration Matrix Selection Area
     #
@@ -165,8 +165,8 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       pushbutton = self.locatorRecontructButton[i]
       pushbutton.setCheckable(False)
       pushbutton.text = 'ReConstruct'
-      pushbutton.setToolTip("Generate the catheter based on the tracked needle")
-      pushbutton.connect(qt.SIGNAL("clicked()"), partial(self.onConstructCatheter, pushbutton))
+      pushbutton.setToolTip("Generate the trajectory based on the tracked needle")
+      pushbutton.connect(qt.SIGNAL("clicked()"), partial(self.onConstructTrajectory, pushbutton))
       transformLayout.addWidget(pushbutton)
       
       self.selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
@@ -183,21 +183,21 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     self.layout.addStretch(1)
 
   def initialize(self, sequenceNodesList = None, sequenceBrowserNodesList = None):
-    self.catheterFidicualsList = []
-    self.catheterModelsList = []
+    self.trajectoryFidicualsList = []
+    self.trajectoryModelsList = []
     self.curveManagersList = []
     colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
     for i in range(self.nLocators):
-      self.catheterFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
-      slicer.mrmlScene.AddNode(self.catheterFidicualsList[i])
-      self.catheterModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
-      slicer.mrmlScene.AddNode(self.catheterModelsList[i])
-      self.catheterModelsList[i].CreateDefaultDisplayNodes()
-      self.catheterModelsList[i].GetDisplayNode().SetOpacity(0.5)
-      self.catheterModelsList[i].GetDisplayNode().SetColor(colors[i])
+      self.trajectoryFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
+      slicer.mrmlScene.AddNode(self.trajectoryFidicualsList[i])
+      self.trajectoryModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
+      slicer.mrmlScene.AddNode(self.trajectoryModelsList[i])
+      self.trajectoryModelsList[i].CreateDefaultDisplayNodes()
+      self.trajectoryModelsList[i].GetDisplayNode().SetOpacity(0.5)
+      self.trajectoryModelsList[i].GetDisplayNode().SetColor(colors[i])
       self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
-      self.curveManagersList[i].connectMarkerNode(self.catheterFidicualsList[i])
-      self.curveManagersList[i].connectModelNode(self.catheterModelsList[i])
+      self.curveManagersList[i].connectMarkerNode(self.trajectoryFidicualsList[i])
+      self.curveManagersList[i].connectModelNode(self.trajectoryModelsList[i])
       self.curveManagersList[i].cmLogic.setTubeRadius(2.50)
       self.curveManagersList[i].cmLogic.enableAutomaticUpdate(1)
       self.curveManagersList[i].cmLogic.setInterpolationMethod(1)
@@ -218,7 +218,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       self.sequenceNodesList = sequenceNodesList
       self.sequenceBrowserNodesList = sequenceBrowserNodesList
       for i in range(self.nLocators):
-        self.onConstructCatheter(self.locatorRecontructButton[i])
+        self.onConstructTrajectory(self.locatorRecontructButton[i])
     if self.sequenceBrowserNodesList is not None:
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0])
 
@@ -228,16 +228,16 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
         slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i])
       if self.sequenceBrowserNodesList and self.sequenceBrowserNodesList[i]:
         slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i])
-      if self.catheterFidicualsList and self.catheterFidicualsList[i]:
-        slicer.mrmlScene.RemoveNode(self.catheterFidicualsList[i])
-      if self.catheterModelsList and self.catheterModelsList[i]:
-        slicer.mrmlScene.RemoveNode(self.catheterModelsList[i])
+      if self.trajectoryFidicualsList and self.trajectoryFidicualsList[i]:
+        slicer.mrmlScene.RemoveNode(self.trajectoryFidicualsList[i])
+      if self.trajectoryModelsList and self.trajectoryModelsList[i]:
+        slicer.mrmlScene.RemoveNode(self.trajectoryModelsList[i])
       if self.curveManagersList and self.curveManagersList[i]:
         self.curveManagersList[i].clear()
-    del self.catheterFidicualsList[:]
+    del self.trajectoryFidicualsList[:]
     del self.sequenceNodesList[:]
     del self.sequenceBrowserNodesList[:]
-    del self.catheterModelsList[:]
+    del self.trajectoryModelsList[:]
     del self.curveManagersList[:]
     pass
 
@@ -337,26 +337,26 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     else:
       self.replayButton.setChecked(False)
       
-  def onConstructCatheter(self, button):
+  def onConstructTrajectory(self, button):
     activeIndex = 0
     for i in range(self.nLocators):
       if self.locatorRecontructButton[i] == button:
         activeIndex = i
     self.enableOnlyCurrentLocator(activeIndex)
     seqNode = self.sequenceNodesList[activeIndex]
-    self.catheterFidicualsList[activeIndex].RemoveAllMarkups()
+    self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
     for index in range(seqNode.GetNumberOfDataNodes()):
       transformNode = seqNode.GetNthDataNode(index)
       transMatrix = transformNode.GetMatrixTransformToParent()
       pos = [transMatrix.GetElement(0,3), transMatrix.GetElement(1,3), transMatrix.GetElement(2,3)] 
-      self.catheterFidicualsList[activeIndex].AddFiducialFromArray(pos)
-      self.catheterFidicualsList[activeIndex].SetNthFiducialLabel(index,"")  
+      self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
+      self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index,"")
     self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel 
     self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
     self.curveManagersList[activeIndex].cmLogic.updateCurve()  
     self.curveManagersList[activeIndex].lockLine()
     
-  def onReload(self, moduleName="CatheterReconstructor"):
+  def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
     # ModuleWizard will subsitute correct default moduleName.
     self.cleanup()
@@ -618,9 +618,9 @@ class CurveManager():
 
 #------------------------------------------------------------
 #
-# CatheterReconstructorLogic
+# TrajectoryReconstructorLogic
 #
-class CatheterReconstructorLogic(ScriptedLoadableModuleLogic):
+class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def __init__(self, parent):
     ScriptedLoadableModuleLogic.__init__(self, parent)

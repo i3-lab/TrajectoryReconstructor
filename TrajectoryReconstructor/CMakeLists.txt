@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-set(MODULE_NAME CatheterReconstructor)
+set(MODULE_NAME TrajectoryReconstructor)
 
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
