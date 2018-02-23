@@ -104,7 +104,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     self.layout.addWidget(selectionCollapsibleButton)
   
     selectionFormLayout = qt.QFormLayout(selectionCollapsibleButton)
-    
+    colors = [[0.3,0.5,0.5],[0.2,0.3,0.6],[0.1,0.6,0.5],[0.5,0.9,0.5],[0.0,0.2,0.8]]
     self.transformSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
@@ -123,9 +123,15 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       slicer.mrmlScene.AddNode(self.catheterFidicualsList[i])
       self.catheterModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
       slicer.mrmlScene.AddNode(self.catheterModelsList[i])
+      self.catheterModelsList[i].CreateDefaultDisplayNodes()
+      self.catheterModelsList[i].GetDisplayNode().SetOpacity(0.5)
+      self.catheterModelsList[i].GetDisplayNode().SetColor(colors[i])
       self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
       self.curveManagersList[i].connectMarkerNode(self.catheterFidicualsList[i])
       self.curveManagersList[i].connectModelNode(self.catheterModelsList[i])
+      self.curveManagersList[i].cmLogic.setTubeRadius(2.50)
+      self.curveManagersList[i].cmLogic.enableAutomaticUpdate(1)
+      self.curveManagersList[i].cmLogic.setInterpolationMethod(1)
     
       self.transformSelector.append(slicer.qMRMLNodeComboBox())
       selector = self.transformSelector[i]
@@ -191,21 +197,13 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     pass
 
 
-  def onLocatorActive(self, checkbox):
+  def enableOnlyCurrentLocator(self, activeIndex):
     removeList = {}
-    activeIndex = 0
     for i in range(self.nLocators):
-      if self.locatorActiveCheckBox[i] == checkbox:
-        activeIndex = i
-    trackedNode = self.transformSelector[activeIndex].currentNode()
-    self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
-    self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
-    self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
-    if checkbox.checked == True:
-      self.recordButton.setChecked(True)
-    else:
-      self.recordButton.setChecked(False)
-    for i in range(self.nLocators):
+      if i == activeIndex:
+        self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
+      else:
+        self.curveManagersList[i]._curveModel.SetDisplayVisibility(False)
       tnode = self.transformSelector[i].currentNode()
       if self.locatorActiveCheckBox[i].checked == True:
         if tnode:
@@ -222,14 +220,22 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
           if mnodeID != None and not (mnodeID in removeList):
             removeList[mnodeID] = True
             self.logic.unlinkLocator(tnode)
-
         self.transformSelector[i].setEnabled(True)
 
-    for k, v in removeList.iteritems():
-      if v:
-        pass
-        #self.logic.removeLocator(k)
-      
+  def onLocatorActive(self, checkbox):
+    activeIndex = 0
+    for i in range(self.nLocators):
+      if self.locatorActiveCheckBox[i] == checkbox:
+        activeIndex = i
+    self.enableOnlyCurrentLocator(activeIndex)
+    trackedNode = self.transformSelector[activeIndex].currentNode()
+    self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+    self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+    self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+    if checkbox.checked == True:
+      self.recordButton.setChecked(True)
+    else:
+      self.recordButton.setChecked(False)
 
   def onLocatorReplay(self, checkbox):
     activeIndex = 0
@@ -237,6 +243,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorReplayCheckBox[i] == checkbox:
         activeIndex = i
     self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+    self.enableOnlyCurrentLocator(activeIndex)
     if checkbox.checked == True:
       self.replayButton.setChecked(True)
     else:
@@ -247,6 +254,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       if self.locatorRecontructButton[i] == button:
         activeIndex = i
+    self.enableOnlyCurrentLocator(activeIndex)
     seqNode = self.sequenceNodesList[activeIndex]
     self.catheterFidicualsList[activeIndex].RemoveAllMarkups()
     for index in range(seqNode.GetNumberOfDataNodes()):
@@ -257,8 +265,6 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       self.catheterFidicualsList[activeIndex].SetNthFiducialLabel(index,"")  
     self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel 
     self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
-    self.curveManagersList[activeIndex].cmLogic.enableAutomaticUpdate(1)
-    self.curveManagersList[activeIndex].cmLogic.setInterpolationMethod(1)
     self.curveManagersList[activeIndex].cmLogic.updateCurve()  
     self.curveManagersList[activeIndex].lockLine()
     
