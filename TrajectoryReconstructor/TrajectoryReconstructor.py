@@ -5,6 +5,7 @@ from __main__ import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 from functools import partial
 import CurveMaker
+import csv
 #------------------------------------------------------------
 #
 # Locator
@@ -123,8 +124,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.selectionCollapsibleButton = ctk.ctkCollapsibleButton()
     self.selectionCollapsibleButton.text = "Locator ON/OFF"
     self.layout.addWidget(self.selectionCollapsibleButton)
-  
     self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
+    self.realTimeReconstruct = qt.QCheckBox()
+    self.realTimeReconstruct.setChecked(False)
+    self.selectionFormLayout.addRow("Realtime Reconstruct: ", self.realTimeReconstruct)
     self.transformSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
@@ -171,6 +174,25 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       
       self.selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
 
+    self.exportCollapsibleButton = ctk.ctkCollapsibleButton()
+    self.exportCollapsibleButton.text = "Export Results"
+    self.layout.addWidget(self.exportCollapsibleButton)
+    self.exportFormLayout = qt.QFormLayout(self.exportCollapsibleButton)
+    self.fileBrowserButton = qt.QPushButton()
+    self.fileDialog = qt.QFileDialog()
+    self.fileNameEditor = qt.QLineEdit()
+    self.saveButton = qt.QPushButton()
+    self.saveButton.setText("Save")
+    exportLayout = qt.QHBoxLayout()
+    exportLayout.addWidget(self.fileBrowserButton)
+    saveFileLayout = qt.QHBoxLayout()
+    saveFileLayout.addWidget(self.fileNameEditor)
+    saveFileLayout.addWidget(self.saveButton)
+    self.fileBrowserButton.clicked.connect(self.selectFile)
+    self.saveButton.clicked.connect(self.saveFile)
+    self.exportFormLayout.addRow("Choose A directory: ", exportLayout)
+    self.exportFormLayout.addRow("File name: ", saveFileLayout)
+
     self.initialize()
 
     #--------------------------------------------------
@@ -184,9 +206,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def initialize(self, sequenceNodesList = None, sequenceBrowserNodesList = None):
     self.trajectoryFidicualsList = []
+    self.timeStampsList = []
     self.trajectoryModelsList = []
     self.curveManagersList = []
-    colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
+    self.colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
     for i in range(self.nLocators):
       self.trajectoryFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
       slicer.mrmlScene.AddNode(self.trajectoryFidicualsList[i])
@@ -194,7 +217,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       slicer.mrmlScene.AddNode(self.trajectoryModelsList[i])
       self.trajectoryModelsList[i].CreateDefaultDisplayNodes()
       self.trajectoryModelsList[i].GetDisplayNode().SetOpacity(0.5)
-      self.trajectoryModelsList[i].GetDisplayNode().SetColor(colors[i])
+      self.trajectoryModelsList[i].GetDisplayNode().SetColor(self.colors[i])
       self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
       self.curveManagersList[i].connectMarkerNode(self.trajectoryFidicualsList[i])
       self.curveManagersList[i].connectModelNode(self.trajectoryModelsList[i])
@@ -239,6 +262,22 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     del self.sequenceBrowserNodesList[:]
     del self.trajectoryModelsList[:]
     del self.curveManagersList[:]
+    del self.timeStampsList[:]
+    pass
+
+  def selectFile(self):
+    self.fileBrowserButton.setText(self.fileDialog.getExistingDirectory())
+
+  def saveFile(self):
+    if os.path.exists(self.fileBrowserButton.text):
+      fileName = os.path.join(self.fileBrowserButton.text, self.fileNameEditor.text)
+      with open(fileName, 'wb') as csvfile:
+        fileWriter = csv.writer(csvfile, delimiter=' ',
+                                quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        fileWriter.writerow(['Spam'] * 5 + ['Baked Beans'])
+        fileWriter.writerow(['Spam', 'Lovely Spam', 'Wonderful Spam'])
+    else:
+      slicer.util.warningDisplay("Path doesn't exists!")
     pass
 
   @vtk.calldata_type(vtk.VTK_OBJECT)
@@ -275,18 +314,14 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         slicer.mrmlScene.RemoveNode(modelNode)
     self.initialize(sequenceNodesList, sequenceBrowserNodesList)
 
-  def enableOnlyCurrentLocator(self, activeIndex):
+  def enableCurrentLocator(self, activeIndex):
     removeList = {}
     for i in range(self.nLocators):
-      if i == activeIndex:
-        self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
-      else:
-        self.curveManagersList[i]._curveModel.SetDisplayVisibility(False)
       tnode = self.transformSelector[i].currentNode()
       if self.locatorActiveCheckBox[i].checked == True:
         if tnode:
           self.transformSelector[i].setEnabled(False)
-          self.logic.addLocator(tnode)
+          self.logic.addLocator(tnode, self.colors[i])
           mnodeID = tnode.GetAttribute('Locator')
           removeList[mnodeID] = False
         else:
@@ -301,56 +336,74 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         self.transformSelector[i].setEnabled(True)
 
   def onLocatorRecording(self, checkbox):
+    activeIndex = 0
+    for i in range(self.nLocators):
+      if self.locatorActiveCheckBox[i] == checkbox:
+        activeIndex = i
     if checkbox.checked == True:
-      activeIndex = 0
-      for i in range(self.nLocators):
-        if self.locatorActiveCheckBox[i] == checkbox:
-          activeIndex = i
-        else:
-          if self.locatorActiveCheckBox[i].checked == True:
-            self.locatorActiveCheckBox[i].setChecked(False)
-            self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
-            self.recordButton.setChecked(False)
-      self.enableOnlyCurrentLocator(activeIndex)
+      self.enableCurrentLocator(activeIndex)
       trackedNode = self.transformSelector[activeIndex].currentNode()
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
       self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
       self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+      if self.realTimeReconstruct.checked:
+        self.sequenceNodesList[activeIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
       self.recordButton.setChecked(True)
     else:
       self.recordButton.setChecked(False)
+      if self.realTimeReconstruct.checked:
+        self.sequenceNodesList[activeIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
 
-  def onLocatorReplay(self, checkbox):
-    if checkbox.checked == True:
-      activeIndex = 0
-      for i in range(self.nLocators):
-        if self.locatorReplayCheckBox[i] == checkbox:
-          activeIndex = i
-        else:
-          if self.locatorReplayCheckBox[i].checked == True:
-            self.locatorReplayCheckBox[i].setChecked(False)
-            self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
-            self.replayButton.setChecked(False)
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
-      self.enableOnlyCurrentLocator(activeIndex)
-      self.replayButton.setChecked(True)
-    else:
-      self.replayButton.setChecked(False)
-      
-  def onConstructTrajectory(self, button):
+  @vtk.calldata_type(vtk.VTK_OBJECT)
+  def realTimeConstructTrajectory(self, caller, eventId, callData):
     activeIndex = 0
     for i in range(self.nLocators):
-      if self.locatorRecontructButton[i] == button:
+      if self.sequenceNodesList[i] == caller:
         activeIndex = i
-    self.enableOnlyCurrentLocator(activeIndex)
+    self.enableCurrentLocator(activeIndex)
     seqNode = self.sequenceNodesList[activeIndex]
     self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
     for index in range(seqNode.GetNumberOfDataNodes()):
       transformNode = seqNode.GetNthDataNode(index)
       transMatrix = transformNode.GetMatrixTransformToParent()
-      pos = [transMatrix.GetElement(0,3), transMatrix.GetElement(1,3), transMatrix.GetElement(2,3)] 
+      pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
+      self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
+      self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")
+    self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
+    self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
+    self.curveManagersList[activeIndex].cmLogic.updateCurve()
+    self.curveManagersList[activeIndex].lockLine()
+
+  def onLocatorReplay(self, checkbox):
+    activeIndex = 0
+    for i in range(self.nLocators):
+      if self.locatorReplayCheckBox[i] == checkbox:
+        activeIndex = i
+    if checkbox.checked == True:
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      self.enableCurrentLocator(activeIndex)
+      self.replayButton.setChecked(True)
+      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
+    else:
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      self.replayButton.setChecked(False)
+      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(False)
+
+  def onConstructTrajectory(self, button):
+    activeIndex = 0
+    for i in range(self.nLocators):
+      if self.locatorRecontructButton[i] == button:
+        activeIndex = i
+    self.enableCurrentLocator(activeIndex)
+    seqNode = self.sequenceNodesList[activeIndex]
+    self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
+    for index in range(seqNode.GetNumberOfDataNodes()):
+      transformNode = seqNode.GetNthDataNode(index)
+      transMatrix = transformNode.GetMatrixTransformToParent()
+      pos = [transMatrix.GetElement(0,3), transMatrix.GetElement(1,3), transMatrix.GetElement(2,3)]
       self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
       self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index,"")
+
     self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel 
     self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
     self.curveManagersList[activeIndex].cmLogic.updateCurve()  
@@ -365,18 +418,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def updateGUI(self):
     # Enable/disable GUI components based on the state machine
-
-    ##if self.logic.connected():
-    #if self.logic.active():
-    #  self.activeCheckBox.setChecked(True)
-    #else:
-    #  self.activeCheckBox.setChecked(False)
-    #
-    ## Enable/disable 'Active' checkbox 
-    #if self.connectorSelector.currentNode():
-    #  self.activeCheckBox.setEnabled(True)
-    #else:
-    #  self.activeCheckBox.setEnabled(False)
     pass
 
 class CurveManager():
@@ -640,7 +681,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     self.widget = widget
 
 
-  def addLocator(self, tnode):
+  def addLocator(self, tnode, color = [0.5,0.5,1]):
     if tnode:
       if tnode.GetAttribute('Locator') == None:
         needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
@@ -648,6 +689,9 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
         needleModel.SetAttribute("vtkMRMLModelNode.rel_needleModel", "True")
         needleModel.SetAndObserveTransformNodeID(tnode.GetID())
         tnode.SetAttribute('Locator', needleModelID)
+        displayNode = needleModel.GetDisplayNode()
+        displayNode.SetColor(color)
+
 
   def unlinkLocator(self, tnode):
     if tnode:
