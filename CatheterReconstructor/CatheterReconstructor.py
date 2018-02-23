@@ -4,6 +4,7 @@ import time
 from __main__ import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 from functools import partial
+import CurveMaker
 #------------------------------------------------------------
 #
 # Locator
@@ -107,13 +108,25 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
     self.transformSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
+    self.locatorRecontructButton = []
     self.sequenceNodesList = []
     self.sequenceBrowserNodesList = []
+    self.catheterFidicualsList = []
+    self.catheterModelsList = []
+    self.curveManagersList = []
     for i in range(self.nLocators):
       self.sequenceNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode"))
       slicer.mrmlScene.AddNode(self.sequenceNodesList[i])
       self.sequenceBrowserNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode"))
       slicer.mrmlScene.AddNode(self.sequenceBrowserNodesList[i])
+      self.catheterFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
+      slicer.mrmlScene.AddNode(self.catheterFidicualsList[i])
+      self.catheterModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
+      slicer.mrmlScene.AddNode(self.catheterModelsList[i])
+      self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
+      self.curveManagersList[i].connectMarkerNode(self.catheterFidicualsList[i])
+      self.curveManagersList[i].connectModelNode(self.catheterModelsList[i])
+    
       self.transformSelector.append(slicer.qMRMLNodeComboBox())
       selector = self.transformSelector[i]
       selector.nodeTypes = ( ("vtkMRMLLinearTransformNode"), "" )
@@ -144,6 +157,15 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       checkbox.setToolTip("Replay locator")
       checkbox.connect(qt.SIGNAL("clicked()"), partial(self.onLocatorReplay, checkbox))
       transformLayout.addWidget(checkbox)
+      
+      self.locatorRecontructButton.append(qt.QPushButton())
+      pushbutton = self.locatorRecontructButton[i]
+      pushbutton.setCheckable(False)
+      pushbutton.text = 'Construct'
+      pushbutton.setToolTip("Generate the catheter based on the tracked needle")
+      pushbutton.connect(qt.SIGNAL("clicked()"), partial(self.onConstructCatheter, pushbutton))
+      transformLayout.addWidget(pushbutton)
+      
       selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
 
       #self.connect(checkbox, qt.SIGNAL("clicked()"), partial(self.onLocatorActive, checkbox))
@@ -219,18 +241,46 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       self.replayButton.setChecked(True)
     else:
       self.replayButton.setChecked(False)
-
+      
+  def onConstructCatheter(self, button):
+    activeIndex = 0
+    for i in range(self.nLocators):
+      if self.locatorRecontructButton[i] == button:
+        activeIndex = i
+    seqNode = self.sequenceNodesList[activeIndex]
+    self.catheterFidicualsList[activeIndex].RemoveAllMarkups()
+    for index in range(seqNode.GetNumberOfDataNodes()):
+      transformNode = seqNode.GetNthDataNode(index)
+      transMatrix = transformNode.GetMatrixTransformToParent()
+      pos = [transMatrix.GetElement(0,3), transMatrix.GetElement(1,3), transMatrix.GetElement(2,3)] 
+      self.catheterFidicualsList[activeIndex].AddFiducialFromArray(pos)
+      self.catheterFidicualsList[activeIndex].SetNthFiducialLabel(index,"")  
+    self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel 
+    self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
+    self.curveManagersList[activeIndex].cmLogic.enableAutomaticUpdate(1)
+    self.curveManagersList[activeIndex].cmLogic.setInterpolationMethod(1)
+    self.curveManagersList[activeIndex].cmLogic.updateCurve()  
+    self.curveManagersList[activeIndex].lockLine()
+    
   def onReload(self, moduleName="CatheterReconstructor"):
     # Generic reload method for any scripted module.
     # ModuleWizard will subsitute correct default moduleName.
     for i in range(self.nLocators):
       if self.sequenceNodesList[i]:
         slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i])
-    del self.sequenceNodesList[:]
-    for i in range(self.nLocators):
       if self.sequenceBrowserNodesList[i]:
         slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i])
-    del self.sequenceBrowserNodesList[:]
+      if self.catheterFidicualsList[i]:
+        slicer.mrmlScene.RemoveNode(self.catheterFidicualsList[i])
+      if self.catheterModelsList[i]:
+        slicer.mrmlScene.RemoveNode(self.catheterModelsList[i])  
+      if self.curveManagersList[i]:
+        self.curveManagersList[i].clear() 
+    del self.catheterFidicualsList[:]
+    del self.sequenceNodesList[:]
+    del self.sequenceBrowserNodesList[:]  
+    del self.catheterModelsList[:]
+    del self.curveManagersList[:]
     globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
 
