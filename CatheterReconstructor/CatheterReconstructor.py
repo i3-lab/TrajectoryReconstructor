@@ -37,7 +37,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
-
+  REL_SEQNODE = "vtkMRMLSequenceBrowserNode.rel_seqNode"
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
     # Instantiate and connect widgets ...
@@ -89,50 +89,47 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
               self.recordingSamplingSetting = grandChild
               break
 
+    if (self.sequenceBrowserWidget is None) or (self.browsingWidget is None) or (self.playWidget is None) or \
+       (self.replayButton is None) or (self.recordButton is None) or (self.synchonizedNodesWidget is None) or \
+       (self.sequenceNodeComboBox is None) or (self.addSequenceNodeButton is None) or (self.removeSequenceNodeButton is None) or \
+       (self.sequenceNodeCellWidget is None) or (self.sequenceBrowserSetting is None) or (self.recordingSamplingSetting is None) :
+      return slicer.util.warningDisplay(
+        "Error: Could not load SequenceBrowser widget. either Extension is missing or the API of OpenIGTLink is changed.")
+
     #
     #--------------------------------------------------
 
 
     #--------------------------------------------------
     # GUI components
-    
+
+    #
+    # Connector Create and Interaction
+    #
+    openIGTLinkIFWidget = slicer.modules.openigtlinkif.widgetRepresentation()
+    connectorCollapsibleButton = None
+    for child in openIGTLinkIFWidget.children():
+      if child.className() == 'ctkCollapsibleButton':
+        if child.text == 'Connectors':
+          connectorCollapsibleButton = child
+    if connectorCollapsibleButton is None:
+      return slicer.util.warningDisplay(
+        "Error: Could not load OpenIGTLink widget. either Extension is missing or the API of OpenIGTLink is changed.")
+    else:
+      self.layout.addWidget(connectorCollapsibleButton)
     #
     # Registration Matrix Selection Area
     #
-    selectionCollapsibleButton = ctk.ctkCollapsibleButton()
-    selectionCollapsibleButton.text = "Locator ON/OFF"
-    self.layout.addWidget(selectionCollapsibleButton)
+    self.selectionCollapsibleButton = ctk.ctkCollapsibleButton()
+    self.selectionCollapsibleButton.text = "Locator ON/OFF"
+    self.layout.addWidget(self.selectionCollapsibleButton)
   
-    selectionFormLayout = qt.QFormLayout(selectionCollapsibleButton)
-    colors = [[0.3,0.5,0.5],[0.2,0.3,0.6],[0.1,0.6,0.5],[0.5,0.9,0.5],[0.0,0.2,0.8]]
+    self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
     self.transformSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
     self.locatorRecontructButton = []
-    self.sequenceNodesList = []
-    self.sequenceBrowserNodesList = []
-    self.catheterFidicualsList = []
-    self.catheterModelsList = []
-    self.curveManagersList = []
     for i in range(self.nLocators):
-      self.sequenceNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode"))
-      slicer.mrmlScene.AddNode(self.sequenceNodesList[i])
-      self.sequenceBrowserNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode"))
-      slicer.mrmlScene.AddNode(self.sequenceBrowserNodesList[i])
-      self.catheterFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
-      slicer.mrmlScene.AddNode(self.catheterFidicualsList[i])
-      self.catheterModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
-      slicer.mrmlScene.AddNode(self.catheterModelsList[i])
-      self.catheterModelsList[i].CreateDefaultDisplayNodes()
-      self.catheterModelsList[i].GetDisplayNode().SetOpacity(0.5)
-      self.catheterModelsList[i].GetDisplayNode().SetColor(colors[i])
-      self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
-      self.curveManagersList[i].connectMarkerNode(self.catheterFidicualsList[i])
-      self.curveManagersList[i].connectModelNode(self.catheterModelsList[i])
-      self.curveManagersList[i].cmLogic.setTubeRadius(2.50)
-      self.curveManagersList[i].cmLogic.enableAutomaticUpdate(1)
-      self.curveManagersList[i].cmLogic.setInterpolationMethod(1)
-    
       self.transformSelector.append(slicer.qMRMLNodeComboBox())
       selector = self.transformSelector[i]
       selector.nodeTypes = ( ("vtkMRMLLinearTransformNode"), "" )
@@ -143,14 +140,14 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       selector.showHidden = False
       selector.showChildNodeTypes = False
       selector.setMRMLScene( slicer.mrmlScene )
-      selector.setToolTip( "Establish a connection with the server" )
+      selector.setToolTip( "Choose a locator transformation matrix" )
 
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
       checkbox.checked = 0
       checkbox.text = ' '
       checkbox.setToolTip("Activate locator")
-      checkbox.connect(qt.SIGNAL("clicked()"), partial(self.onLocatorActive, checkbox))
+      checkbox.connect(qt.SIGNAL("clicked()"), partial(self.onLocatorRecording, checkbox))
 
       transformLayout = qt.QHBoxLayout()
       transformLayout.addWidget(selector)
@@ -167,35 +164,116 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
       self.locatorRecontructButton.append(qt.QPushButton())
       pushbutton = self.locatorRecontructButton[i]
       pushbutton.setCheckable(False)
-      pushbutton.text = 'Construct'
+      pushbutton.text = 'ReConstruct'
       pushbutton.setToolTip("Generate the catheter based on the tracked needle")
       pushbutton.connect(qt.SIGNAL("clicked()"), partial(self.onConstructCatheter, pushbutton))
       transformLayout.addWidget(pushbutton)
       
-      selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
-
-      #self.connect(checkbox, qt.SIGNAL("clicked()"), partial(self.onLocatorActive, checkbox))
-      #checkbox.connect('toggled(bool)', self.onLocatorActive)
+      self.selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
 
     self.initialize()
 
     #--------------------------------------------------
     # connections
     #
+    slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.StartImportEvent, self.StartCaseImportCallback)
+    slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.EndImportEvent, self.LoadCaseCompletedCallback)
 
     # Add vertical spacer
     self.layout.addStretch(1)
 
-  def initialize(self):
+  def initialize(self, sequenceNodesList = None, sequenceBrowserNodesList = None):
+    self.catheterFidicualsList = []
+    self.catheterModelsList = []
+    self.curveManagersList = []
+    colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
     for i in range(self.nLocators):
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
-      self.sequenceNodeComboBox.setCurrentNode(self.sequenceNodesList[i])
-      self.addSequenceNodeButton.click()
-      self.recordingSamplingSetting.setCurrentIndex(0)
-    self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0])
+      self.catheterFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
+      slicer.mrmlScene.AddNode(self.catheterFidicualsList[i])
+      self.catheterModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
+      slicer.mrmlScene.AddNode(self.catheterModelsList[i])
+      self.catheterModelsList[i].CreateDefaultDisplayNodes()
+      self.catheterModelsList[i].GetDisplayNode().SetOpacity(0.5)
+      self.catheterModelsList[i].GetDisplayNode().SetColor(colors[i])
+      self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
+      self.curveManagersList[i].connectMarkerNode(self.catheterFidicualsList[i])
+      self.curveManagersList[i].connectModelNode(self.catheterModelsList[i])
+      self.curveManagersList[i].cmLogic.setTubeRadius(2.50)
+      self.curveManagersList[i].cmLogic.enableAutomaticUpdate(1)
+      self.curveManagersList[i].cmLogic.setInterpolationMethod(1)
+    self.sequenceNodesList = []
+    self.sequenceBrowserNodesList = []
+    if (sequenceNodesList is None) or (sequenceBrowserNodesList is None):
+      for i in range(self.nLocators):
+        self.sequenceNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode"))
+        slicer.mrmlScene.AddNode(self.sequenceNodesList[i])
+        self.sequenceBrowserNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode"))
+        slicer.mrmlScene.AddNode(self.sequenceBrowserNodesList[i])
+        self.sequenceBrowserNodesList[i].SetAttribute(self.REL_SEQNODE, self.sequenceNodesList[i].GetID())
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
+        self.sequenceNodeComboBox.setCurrentNode(self.sequenceNodesList[i])
+        self.addSequenceNodeButton.click()
+        self.recordingSamplingSetting.setCurrentIndex(0)
+    else:
+      self.sequenceNodesList = sequenceNodesList
+      self.sequenceBrowserNodesList = sequenceBrowserNodesList
+      for i in range(self.nLocators):
+        self.onConstructCatheter(self.locatorRecontructButton[i])
+    if self.sequenceBrowserNodesList is not None:
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0])
+
   def cleanup(self):
+    for i in range(self.nLocators):
+      if self.sequenceNodesList and self.sequenceNodesList[i]:
+        slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i])
+      if self.sequenceBrowserNodesList and self.sequenceBrowserNodesList[i]:
+        slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i])
+      if self.catheterFidicualsList and self.catheterFidicualsList[i]:
+        slicer.mrmlScene.RemoveNode(self.catheterFidicualsList[i])
+      if self.catheterModelsList and self.catheterModelsList[i]:
+        slicer.mrmlScene.RemoveNode(self.catheterModelsList[i])
+      if self.curveManagersList and self.curveManagersList[i]:
+        self.curveManagersList[i].clear()
+    del self.catheterFidicualsList[:]
+    del self.sequenceNodesList[:]
+    del self.sequenceBrowserNodesList[:]
+    del self.catheterModelsList[:]
+    del self.curveManagersList[:]
     pass
 
+  @vtk.calldata_type(vtk.VTK_OBJECT)
+  def StartCaseImportCallback(self, caller, eventId, callData):
+    print("loading study")
+    self.cleanup()
+    slicer.mrmlScene.Clear(0)
+
+
+  @vtk.calldata_type(vtk.VTK_OBJECT)
+  def LoadCaseCompletedCallback(self, caller, eventId, callData):
+    print("study loaded")
+    sequenceNodesList = []
+    sequenceBrowserNodesList = []
+    sequenceBrowserNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLSequenceBrowserNode")
+    for index in range(sequenceBrowserNodesCollection.GetNumberOfItems()):
+      sequenceBrowserNode = sequenceBrowserNodesCollection.GetItemAsObject(index)
+      sequenceNodeID = sequenceBrowserNode.GetAttribute(self.REL_SEQNODE)
+      if slicer.mrmlScene.GetNodeByID(sequenceNodeID):
+        sequenceBrowserNodesList.append(sequenceBrowserNode)
+        sequenceNodesList.append(slicer.mrmlScene.GetNodeByID(sequenceNodeID))
+    # We clear all the markups and model from the loaded mrmlScene to reduce complexity.
+    # The markups and model for curve maker will be generated in the self.initialization function.
+    markupsNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsFiducialNode")
+    modelNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLModelNode")
+    for index in range(markupsNodesCollection.GetNumberOfItems()):
+      markupsNode = markupsNodesCollection.GetItemAsObject(index)
+      slicer.mrmlScene.RemoveNode(markupsNode.GetDisplayNode())
+      slicer.mrmlScene.RemoveNode(markupsNode)
+    for index in range(modelNodesCollection.GetNumberOfItems()):
+      modelNode = modelNodesCollection.GetItemAsObject(index)
+      if modelNode.GetAttribute('vtkMRMLModelNode.rel_needleModel') is None:  # we don't delete related locator model
+        slicer.mrmlScene.RemoveNode(modelNode.GetDisplayNode())
+        slicer.mrmlScene.RemoveNode(modelNode)
+    self.initialize(sequenceNodesList, sequenceBrowserNodesList)
 
   def enableOnlyCurrentLocator(self, activeIndex):
     removeList = {}
@@ -222,29 +300,39 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
             self.logic.unlinkLocator(tnode)
         self.transformSelector[i].setEnabled(True)
 
-  def onLocatorActive(self, checkbox):
-    activeIndex = 0
-    for i in range(self.nLocators):
-      if self.locatorActiveCheckBox[i] == checkbox:
-        activeIndex = i
-    self.enableOnlyCurrentLocator(activeIndex)
-    trackedNode = self.transformSelector[activeIndex].currentNode()
-    self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
-    self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
-    self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+  def onLocatorRecording(self, checkbox):
     if checkbox.checked == True:
+      activeIndex = 0
+      for i in range(self.nLocators):
+        if self.locatorActiveCheckBox[i] == checkbox:
+          activeIndex = i
+        else:
+          if self.locatorActiveCheckBox[i].checked == True:
+            self.locatorActiveCheckBox[i].setChecked(False)
+            self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
+            self.recordButton.setChecked(False)
+      self.enableOnlyCurrentLocator(activeIndex)
+      trackedNode = self.transformSelector[activeIndex].currentNode()
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+      self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
       self.recordButton.setChecked(True)
     else:
       self.recordButton.setChecked(False)
 
   def onLocatorReplay(self, checkbox):
-    activeIndex = 0
-    for i in range(self.nLocators):
-      if self.locatorReplayCheckBox[i] == checkbox:
-        activeIndex = i
-    self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
-    self.enableOnlyCurrentLocator(activeIndex)
     if checkbox.checked == True:
+      activeIndex = 0
+      for i in range(self.nLocators):
+        if self.locatorReplayCheckBox[i] == checkbox:
+          activeIndex = i
+        else:
+          if self.locatorReplayCheckBox[i].checked == True:
+            self.locatorReplayCheckBox[i].setChecked(False)
+            self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
+            self.replayButton.setChecked(False)
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      self.enableOnlyCurrentLocator(activeIndex)
       self.replayButton.setChecked(True)
     else:
       self.replayButton.setChecked(False)
@@ -271,22 +359,7 @@ class CatheterReconstructorWidget(ScriptedLoadableModuleWidget):
   def onReload(self, moduleName="CatheterReconstructor"):
     # Generic reload method for any scripted module.
     # ModuleWizard will subsitute correct default moduleName.
-    for i in range(self.nLocators):
-      if self.sequenceNodesList[i]:
-        slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i])
-      if self.sequenceBrowserNodesList[i]:
-        slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i])
-      if self.catheterFidicualsList[i]:
-        slicer.mrmlScene.RemoveNode(self.catheterFidicualsList[i])
-      if self.catheterModelsList[i]:
-        slicer.mrmlScene.RemoveNode(self.catheterModelsList[i])  
-      if self.curveManagersList[i]:
-        self.curveManagersList[i].clear() 
-    del self.catheterFidicualsList[:]
-    del self.sequenceNodesList[:]
-    del self.sequenceBrowserNodesList[:]  
-    del self.catheterModelsList[:]
-    del self.curveManagersList[:]
+    self.cleanup()
     globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
 
@@ -572,12 +645,12 @@ class CatheterReconstructorLogic(ScriptedLoadableModuleLogic):
       if tnode.GetAttribute('Locator') == None:
         needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
         needleModel = self.scene.GetNodeByID(needleModelID)
+        needleModel.SetAttribute("vtkMRMLModelNode.rel_needleModel", "True")
         needleModel.SetAndObserveTransformNodeID(tnode.GetID())
         tnode.SetAttribute('Locator', needleModelID)
 
   def unlinkLocator(self, tnode):
     if tnode:
-      print 'unlinkLocator(%s)' % tnode.GetID()
       tnode.RemoveAttribute('Locator')
       tnode.RemoveAttribute('TrajectoryModel')
       tnode.RemoveAttribute('TrajectoryFiducial')

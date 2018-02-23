@@ -21,7 +21,11 @@ Establish Communication
 
 Start Tracking
 --------------
-
+1. Choose the tranform matrix from the locator comboBox.
+2. Click the first checkbox after the locator comboBox to start recording
+3. Uncheck the recording checkbox to stop recording.
+4. Click the second checkbox after the locator comboBox to start replaying
+5. Reconstruct the trajectory path by click the "Reconstruct" button
 
 Send Surface Model
 ------------------
