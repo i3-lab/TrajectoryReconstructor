@@ -46,7 +46,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.logic = TrajectoryReconstructorLogic(None)
     self.logic.setWidget(self)
     self.nLocators = 5
+    self.elementPerLocator = 5
     self.dirString = ""
+    self.fileString = ""
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
     self.browsingWidget = None
@@ -175,24 +177,35 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       
       self.selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
 
-    self.exportCollapsibleButton = ctk.ctkCollapsibleButton()
-    self.exportCollapsibleButton.text = "Export Results"
-    self.layout.addWidget(self.exportCollapsibleButton)
-    self.exportFormLayout = qt.QFormLayout(self.exportCollapsibleButton)
-    self.fileBrowserButton = qt.QPushButton()
+    self.exportImportCollapsibleButton = ctk.ctkCollapsibleButton()
+    self.exportImportCollapsibleButton.text = "Export/Import Results"
+    self.layout.addWidget(self.exportImportCollapsibleButton)
+    self.exportImportFormLayout = qt.QFormLayout(self.exportImportCollapsibleButton)
+    self.outputDirBrowserButton = qt.QPushButton()
     self.fileDialog = qt.QFileDialog()
     self.fileNameEditor = qt.QLineEdit()
     self.saveButton = qt.QPushButton()
     self.saveButton.setText("Save")
     exportLayout = qt.QHBoxLayout()
-    exportLayout.addWidget(self.fileBrowserButton)
+    exportLayout.addWidget(self.outputDirBrowserButton)
     saveFileLayout = qt.QHBoxLayout()
     saveFileLayout.addWidget(self.fileNameEditor)
     saveFileLayout.addWidget(self.saveButton)
-    self.fileBrowserButton.clicked.connect(self.selectFile)
+    self.outputDirBrowserButton.clicked.connect(self.selectDirectory)
     self.saveButton.clicked.connect(self.saveFile)
-    self.exportFormLayout.addRow("Choose A directory: ", exportLayout)
-    self.exportFormLayout.addRow("File name: ", saveFileLayout)
+
+    self.inputFileBrowserButton = qt.QPushButton()
+    self.loadButton = qt.QPushButton()
+    self.loadButton.setText("Load")
+    importLayout = qt.QHBoxLayout()
+    importLayout.addWidget(self.inputFileBrowserButton)
+    importLayout.addWidget(self.loadButton)
+    self.inputFileBrowserButton.clicked.connect(self.selectFile)
+    self.loadButton.clicked.connect(self.loadFile)
+
+    self.exportImportFormLayout.addRow("Export to directory: ", exportLayout)
+    self.exportImportFormLayout.addRow("File name: ", saveFileLayout)
+    self.exportImportFormLayout.addRow("Import File: ", importLayout)
 
     self.initialize()
 
@@ -267,10 +280,55 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     del self.timeStampsList[:]
     pass
 
-  def selectFile(self):
+  def selectDirectory(self):
     self.dirString = self.fileDialog.getExistingDirectory()
     if len(self.dirString)>20:
-      self.fileBrowserButton.setText(".." + self.dirString[-20:])
+      self.outputDirBrowserButton.setText(".." + self.dirString[-20:])
+
+  def selectFile(self):
+    self.fileString = self.fileDialog.getOpenFileName()
+    if len(self.fileString)>20:
+      self.inputFileBrowserButton.setText(".." + self.fileString[-20:])
+
+
+  def loadFile(self):
+    if not slicer.util.confirmYesNoDisplay("Current MRMLScene will be clear. Do you want to proceed?"):
+      return
+    self.cleanup()
+    self.initialize()
+    if os.path.isfile(self.fileString):
+      with open(self.fileString, 'rb') as csvfile:
+        fileReader = csv.reader(csvfile, delimiter=',',
+                                quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        rowIndex = 0
+        for row in fileReader:
+          numLocator = min(len(row)/self.elementPerLocator, self.nLocators)
+          if rowIndex == 0:
+            for locatorIndex in range(numLocator):
+              transformNode = slicer.vtkMRMLLinearTransformNode()
+              slicer.mrmlScene.AddNode(transformNode)
+              self.transformSelector[locatorIndex].setCurrentNode(transformNode)
+              self.transformSelector[locatorIndex].currentNode().SetName(row[locatorIndex*self.elementPerLocator])
+          if rowIndex >= 2:
+            for locatorIndex in range(numLocator):
+              timeStamp = row[locatorIndex*self.elementPerLocator]
+              pos = [float(row[locatorIndex*self.elementPerLocator+1]), float(row[locatorIndex*self.elementPerLocator+2]), float(row[locatorIndex*self.elementPerLocator+3])]
+              matrix = vtk.vtkMatrix4x4()
+              matrix.Identity()
+              matrix.SetElement(0,3,pos[0])
+              matrix.SetElement(1,3,pos[1])
+              matrix.SetElement(2,3,pos[2])
+              transformNode = slicer.vtkMRMLLinearTransformNode()
+              transformNode.SetMatrixTransformToParent(matrix)
+              proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
+              transformNode.SetName(proxyNodeName)
+              self.sequenceNodesList[locatorIndex].SetDataNodeAtValue(transformNode, timeStamp)
+              self.trajectoryFidicualsList[locatorIndex].AddFiducialFromArray(pos)
+              self.trajectoryFidicualsList[locatorIndex].SetNthFiducialLabel(rowIndex-2, "")
+          rowIndex = rowIndex + 1
+    else:
+      slicer.util.warningDisplay("file doesn't exists!")
+    pass
 
   def saveFile(self):
     if os.path.exists(self.dirString):
@@ -312,10 +370,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
               poses.append(str(pos[1]))
               poses.append(str(pos[2]))
               poses.append(" ")
-          fileWriter.writerow(poses)  
-          
-        #fileWriter.writerow(['Spam'] * 5 + ['Baked Beans'])
-        #fileWriter.writerow(['Spam', 'Lovely Spam', 'Wonderful Spam'])
+          fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
     pass
