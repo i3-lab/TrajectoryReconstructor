@@ -98,7 +98,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
        (self.sequenceNodeComboBox is None) or (self.addSequenceNodeButton is None) or (self.removeSequenceNodeButton is None) or \
        (self.sequenceNodeCellWidget is None) or (self.sequenceBrowserSetting is None) or (self.recordingSamplingSetting is None) :
       return slicer.util.warningDisplay(
-        "Error: Could not load SequenceBrowser widget. either Extension is missing or the API of OpenIGTLink is changed.")
+        "Error: Could not load SequenceBrowser widget. either Extension is missing or the API of SequenceBrowser is changed.")
 
     #
     #--------------------------------------------------
@@ -195,6 +195,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.saveButton.clicked.connect(self.saveFile)
 
     self.inputFileBrowserButton = qt.QPushButton()
+    self.inputFileBrowserButton.setText("Input CSV file name")
     self.loadButton = qt.QPushButton()
     self.loadButton.setText("Load")
     importLayout = qt.QHBoxLayout()
@@ -278,6 +279,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     del self.trajectoryModelsList[:]
     del self.curveManagersList[:]
     del self.timeStampsList[:]
+    slicer.mrmlScene.Clear(0)
     pass
 
   def selectDirectory(self):
@@ -309,22 +311,24 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
               slicer.mrmlScene.AddNode(transformNode)
               self.transformSelector[locatorIndex].setCurrentNode(transformNode)
               self.transformSelector[locatorIndex].currentNode().SetName(row[locatorIndex*self.elementPerLocator])
+              self.trajectoryFidicualsList[locatorIndex].SetLocked(True)
           if rowIndex >= 2:
             for locatorIndex in range(numLocator):
               timeStamp = row[locatorIndex*self.elementPerLocator]
-              pos = [float(row[locatorIndex*self.elementPerLocator+1]), float(row[locatorIndex*self.elementPerLocator+2]), float(row[locatorIndex*self.elementPerLocator+3])]
-              matrix = vtk.vtkMatrix4x4()
-              matrix.Identity()
-              matrix.SetElement(0,3,pos[0])
-              matrix.SetElement(1,3,pos[1])
-              matrix.SetElement(2,3,pos[2])
-              transformNode = slicer.vtkMRMLLinearTransformNode()
-              transformNode.SetMatrixTransformToParent(matrix)
-              proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
-              transformNode.SetName(proxyNodeName)
-              self.sequenceNodesList[locatorIndex].SetDataNodeAtValue(transformNode, timeStamp)
-              self.trajectoryFidicualsList[locatorIndex].AddFiducialFromArray(pos)
-              self.trajectoryFidicualsList[locatorIndex].SetNthFiducialLabel(rowIndex-2, "")
+              if not timeStamp == "":
+                pos = [float(row[locatorIndex*self.elementPerLocator+1]), float(row[locatorIndex*self.elementPerLocator+2]), float(row[locatorIndex*self.elementPerLocator+3])]
+                matrix = vtk.vtkMatrix4x4()
+                matrix.Identity()
+                matrix.SetElement(0,3,pos[0])
+                matrix.SetElement(1,3,pos[1])
+                matrix.SetElement(2,3,pos[2])
+                transformNode = slicer.vtkMRMLLinearTransformNode()
+                transformNode.SetMatrixTransformToParent(matrix)
+                proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
+                transformNode.SetName(proxyNodeName)
+                self.sequenceNodesList[locatorIndex].SetDataNodeAtValue(transformNode, timeStamp)
+                self.trajectoryFidicualsList[locatorIndex].AddFiducialFromArray(pos)
+                self.trajectoryFidicualsList[locatorIndex].SetNthFiducialLabel(rowIndex-2, "")
           rowIndex = rowIndex + 1
     else:
       slicer.util.warningDisplay("file doesn't exists!")
@@ -379,7 +383,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def StartCaseImportCallback(self, caller, eventId, callData):
     print("loading study")
     self.cleanup()
-    slicer.mrmlScene.Clear(0)
 
 
   @vtk.calldata_type(vtk.VTK_OBJECT)
@@ -501,6 +504,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
     # ModuleWizard will subsitute correct default moduleName.
+    self.openIGTLinkIFWidget.layout().addWidget(self.connectorCollapsibleButton)  # return the GUI widget to OpenIGTLinkWidget
     self.cleanup()
     globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
@@ -780,6 +784,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
         tnode.SetAttribute('Locator', needleModelID)
         displayNode = needleModel.GetDisplayNode()
         displayNode.SetColor(color)
+        return
 
 
   def unlinkLocator(self, tnode):
@@ -825,7 +830,6 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
   def createNeedleModel(self, node):
     if node and node.GetClassName() == 'vtkMRMLIGTLTrackingDataBundleNode':
       n = node.GetNumberOfTransformNodes()
-      print n
       for id in range (n):
         tnode = node.GetTransformNode(id)
         if tnode:
