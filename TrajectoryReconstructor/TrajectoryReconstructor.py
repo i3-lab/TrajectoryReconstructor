@@ -4,7 +4,7 @@ import time
 from __main__ import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 from functools import partial
-import CurveMaker
+import CurveMaker, numpy
 import csv
 #------------------------------------------------------------
 #
@@ -304,7 +304,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
         rowIndex = 0
         for row in fileReader:
-          numLocatorInRow = min(len(row)/self.elementPerLocator, self.nLocators)
+          numLocatorInRow = int(min(len(row)/self.elementPerLocator, self.nLocators))
           if rowIndex == 0:
             for locatorIndex in range(numLocatorInRow):
               transformNode = slicer.vtkMRMLLinearTransformNode()
@@ -495,8 +495,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       transMatrix = transformNode.GetMatrixTransformToParent()
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
       posAll.append(pos)
-    filterPosAll = self.filterPoses(posAll)
-    for pos in filterPosAll:
+    filteredPosAll = self.kalmanFilteredPoses(posAll)
+    downSampleRate = 10
+    resampledPos = self.resampleData(filteredPosAll, downSampleRate)
+    for pos in resampledPos:
       self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
       self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
     self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
@@ -504,8 +506,32 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.curveManagersList[activeIndex].cmLogic.updateCurve()
     self.curveManagersList[activeIndex].lockLine() 
     
-  def filterPoses(self, posAll):
-    return posAll
+  def kalmanFilteredPoses(self, posAll, Q = 1e-5, R = 0.02**2):
+    #Q = 1e-5  # process variance
+    #R = 0.02 ** 2  # estimate of measurement variance, change to see effect
+    totalLen = len(posAll)
+    # allocate space for arrays
+    phat = numpy.zeros(totalLen)  # a posteri estimate of x
+    P = numpy.zeros(totalLen)  # a posteri error estimate
+    hatminus = numpy.zeros(totalLen)  # a priori estimate of x
+    filteredData = numpy.zeros((totalLen,3))
+    # intial guesses
+    for i in range(3):
+      filteredData[0][i] = posAll[0][i]
+      P_pre = 1.0
+      for k in range(1, totalLen):
+        # time update
+        hatminus[k] = filteredData[k-1][i]
+        Pminus = P_pre + Q
+
+        # measurement update
+        K = Pminus / (Pminus + R)
+        filteredData[k][i] = hatminus[k] + K * (posAll[k][i] - hatminus[k])
+        P_pre = (1 - K) * Pminus
+    return filteredData
+
+  def resampleData(self, data, downSampleRate):
+    return data
     
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
