@@ -304,16 +304,16 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
         rowIndex = 0
         for row in fileReader:
-          numLocator = min(len(row)/self.elementPerLocator, self.nLocators)
+          numLocatorInRow = min(len(row)/self.elementPerLocator, self.nLocators)
           if rowIndex == 0:
-            for locatorIndex in range(numLocator):
+            for locatorIndex in range(numLocatorInRow):
               transformNode = slicer.vtkMRMLLinearTransformNode()
               slicer.mrmlScene.AddNode(transformNode)
               self.transformSelector[locatorIndex].setCurrentNode(transformNode)
               self.transformSelector[locatorIndex].currentNode().SetName(row[locatorIndex*self.elementPerLocator])
               self.trajectoryFidicualsList[locatorIndex].SetLocked(True)
           if rowIndex >= 2:
-            for locatorIndex in range(numLocator):
+            for locatorIndex in range(numLocatorInRow):
               timeStamp = row[locatorIndex*self.elementPerLocator]
               if not timeStamp == "":
                 pos = [float(row[locatorIndex*self.elementPerLocator+1]), float(row[locatorIndex*self.elementPerLocator+2]), float(row[locatorIndex*self.elementPerLocator+3])]
@@ -327,8 +327,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
                 transformNode.SetName(proxyNodeName)
                 self.sequenceNodesList[locatorIndex].SetDataNodeAtValue(transformNode, timeStamp)
-                self.trajectoryFidicualsList[locatorIndex].AddFiducialFromArray(pos)
-                self.trajectoryFidicualsList[locatorIndex].SetNthFiducialLabel(rowIndex-2, "")
           rowIndex = rowIndex + 1
     else:
       slicer.util.warningDisplay("file doesn't exists!")
@@ -345,7 +343,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         validLocatorIndex = []
         for i in range(self.nLocators):
           if self.transformSelector[i].currentNode() is not None:
-            if self.trajectoryFidicualsList[i].GetNumberOfFiducials():
+            seqNode = self.sequenceNodesList[i]
+            if seqNode.GetNumberOfDataNodes():
               header.append(self.transformSelector[i].currentNode().GetName())
               header.append(" ")
               header.append(" ")
@@ -361,15 +360,19 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         fileWriter.writerow(title)
         maxRowNum = 0
         for index in validLocatorIndex:
-          if self.trajectoryFidicualsList[index].GetNumberOfFiducials() > maxRowNum:
-            maxRowNum = self.trajectoryFidicualsList[index].GetNumberOfFiducials()
+          seqNode = self.sequenceNodesList[index]
+          if seqNode.GetNumberOfDataNodes() > maxRowNum:
+            maxRowNum = seqNode.GetNumberOfDataNodes()
         for row in range(maxRowNum):    
           poses = []
           for index in validLocatorIndex:
-            if row < self.trajectoryFidicualsList[index].GetNumberOfFiducials():
-              pos = [0,0,0]
-              self.trajectoryFidicualsList[index].GetNthFiducialPosition(row, pos)
-              poses.append(str(self.timeStampsList[index][row]))
+            seqNode = self.sequenceNodesList[index]
+            if row < seqNode.GetNumberOfDataNodes():
+              poses.append(str(seqNode.GetNthIndexValue(row)))
+              seqNode = self.sequenceNodesList[index]
+              transformNode = seqNode.GetNthDataNode(row)
+              transMatrix = transformNode.GetMatrixTransformToParent()
+              pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
               poses.append(str(pos[0]))
               poses.append(str(pos[1]))
               poses.append(str(pos[2]))
@@ -486,20 +489,23 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def constructSpecificTrajectory(self, activeIndex):
     seqNode = self.sequenceNodesList[activeIndex]
     self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
-    self.timeStampsList[activeIndex] = []
-    currentTimeStamps = []
+    posAll = []
     for index in range(seqNode.GetNumberOfDataNodes()):
       transformNode = seqNode.GetNthDataNode(index)
       transMatrix = transformNode.GetMatrixTransformToParent()
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
-      currentTimeStamps.append(seqNode.GetNthIndexValue(index))
+      posAll.append(pos)
+    filterPosAll = self.filterPoses(posAll)
+    for pos in filterPosAll:
       self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
-      self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")
-    self.timeStampsList[activeIndex] = currentTimeStamps
+      self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
     self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
     self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
     self.curveManagersList[activeIndex].cmLogic.updateCurve()
     self.curveManagersList[activeIndex].lockLine() 
+    
+  def filterPoses(self, posAll):
+    return posAll
     
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
