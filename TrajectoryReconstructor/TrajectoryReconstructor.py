@@ -49,6 +49,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.elementPerLocator = 5
     self.dirString = ""
     self.fileString = ""
+    self.distanceThreshold = 2.0 # in millimeter
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
     self.browsingWidget = None
@@ -496,8 +497,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
       posAll.append(pos)
     filteredPosAll = self.kalmanFilteredPoses(posAll)
-    downSampleRate = 10
-    resampledPos = self.resampleData(filteredPosAll, downSampleRate)
+    resampledPos = self.resampleData(filteredPosAll)
     for pos in resampledPos:
       self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
       self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
@@ -530,8 +530,32 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         P_pre = (1 - K) * Pminus
     return filteredData
 
-  def resampleData(self, data, downSampleRate):
-    return data
+  def resampleData(self, data):
+    dataLen = len(data)
+    step = 10
+    pos_mean = numpy.zeros((dataLen/step,3))
+    pos_mean[0,:] = numpy.array([numpy.mean(data[0:step,0]), numpy.mean(data[0:step, 1]), numpy.mean(data[0:step, 2])])
+    pos_DownSampled = []
+    pos_DownSampled.append(pos_mean[0,:])
+    for index in range(step, dataLen-step, step):
+      pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
+      if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>self.distanceThreshold:
+        distance = -1e20
+        indexMax = 0
+        for indexInner in range(step):
+          pos1 = numpy.array(data[index+indexInner,:])
+          if len(pos_DownSampled) > 1:
+            pos2 = pos_DownSampled[-2]
+          else:
+            pos2 = pos_DownSampled[0]  
+          if numpy.linalg.norm(pos1-pos2)>distance:
+            indexMax = indexInner
+            distance = numpy.linalg.norm(pos1-pos2)
+        pos_DownSampled.append(data[index+indexMax,:])
+    pos_downSampledArray = numpy.zeros((len(pos_DownSampled),3)) 
+    for index in range(len(pos_DownSampled)):   
+      pos_downSampledArray[index,:] = pos_DownSampled[index]
+    return pos_downSampledArray
     
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
