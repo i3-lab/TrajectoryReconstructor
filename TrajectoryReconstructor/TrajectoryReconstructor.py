@@ -42,14 +42,16 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
     # Instantiate and connect widgets ...
-
-    self.logic = TrajectoryReconstructorLogic(None)
-    self.logic.setWidget(self)
     self.nLocators = 5
+    self.logic = TrajectoryReconstructorLogic(self, self.nLocators)
+    self.logic.setWidget(self)
     self.elementPerLocator = 5
     self.dirString = ""
     self.fileString = ""
-    self.distanceThreshold = 2.0 # in millimeter
+    self.processVariance = 1e-5
+    self.measurementVariance = 0.0004
+    self.movementThreshold = 2.0 # in millimeter
+    self.downSampleStepSize = 10
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
     self.browsingWidget = None
@@ -125,13 +127,54 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     #
     # Registration Matrix Selection Area
     #
+
+    #
+    # Algorithm setting section
+    #
+    self.algorithmSettingCollapsibleButton = ctk.ctkCollapsibleButton()
+    self.algorithmSettingCollapsibleButton.text = "Algorithm Settings"
+    self.algorithmSettingCollapsibleButton.setChecked(False)
+    self.layout.addWidget(self.algorithmSettingCollapsibleButton)
+    self.settingFormLayout = qt.QFormLayout(self.algorithmSettingCollapsibleButton)
+    self.realTimeReconstructCheckBox = qt.QCheckBox()
+    self.realTimeReconstructCheckBox.setChecked(False)
+    self.processVarianceSpinBox = qt.QDoubleSpinBox()
+    self.processVarianceSpinBox.setDecimals(6)
+    self.processVarianceSpinBox.setValue(1e-5)
+    self.processVarianceSpinBox.setSingleStep(1e-5)
+    self.processVarianceSpinBox.setToolTip("Related to the pocess noise level")
+    self.processVarianceSpinBox.connect('valueChanged(double)', self.onProcessVarianceChanged)
+    self.measurementVarianceSpinBox = qt.QDoubleSpinBox()
+    self.measurementVarianceSpinBox.setDecimals(4)
+    self.measurementVarianceSpinBox.setValue(0.004)
+    self.measurementVarianceSpinBox.setSingleStep(0.001)
+    self.measurementVarianceSpinBox.setToolTip("Related to the measurement noise level")
+    self.measurementVarianceSpinBox.connect('valueChanged(double)', self.onMeasurementVarianceChanged)
+    self.movementThresholdSpinBox = qt.QDoubleSpinBox()
+    self.movementThresholdSpinBox.setValue(2.0)
+    self.movementThresholdSpinBox.setDecimals(2)
+    self.movementThresholdSpinBox.setMinimum(0.0)
+    self.movementThresholdSpinBox.setSingleStep(0.5)
+    self.movementThresholdSpinBox.setToolTip("The threshold for needle movement to be sampled. \
+                                              A moving window with certain size will process the data and only add the data to the downsample sequence \
+                                              if the distance to the previouse window section is larger than the threshold")
+    self.movementThresholdSpinBox.connect('valueChanged(double)', self.onMovementThresholdChanged)
+    self.downSampleStepSizeSpinBox = qt.QSpinBox()
+    self.downSampleStepSizeSpinBox.setValue(10)
+    self.downSampleStepSizeSpinBox.setMinimum(1)
+    self.downSampleStepSizeSpinBox.setSingleStep(1)
+    self.downSampleStepSizeSpinBox.setToolTip("Moving window size for downsampling")
+    self.downSampleStepSizeSpinBox.connect('valueChanged(double)', self.onDownSampleStepSizeChanged)
+    self.settingFormLayout.addRow("Real-time Reconstruct: ", self.realTimeReconstructCheckBox)
+    self.settingFormLayout.addRow("Process Variance: ", self.processVarianceSpinBox)
+    self.settingFormLayout.addRow("Measurement Variance: ", self.measurementVarianceSpinBox)
+    self.settingFormLayout.addRow("Movement Threshold: ", self.movementThresholdSpinBox)
+    self.settingFormLayout.addRow("Downsample Window Size: ", self.downSampleStepSizeSpinBox)
+
     self.selectionCollapsibleButton = ctk.ctkCollapsibleButton()
     self.selectionCollapsibleButton.text = "Locator ON/OFF"
     self.layout.addWidget(self.selectionCollapsibleButton)
     self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
-    self.realTimeReconstruct = qt.QCheckBox()
-    self.realTimeReconstruct.setChecked(False)
-    self.selectionFormLayout.addRow("Realtime Reconstruct: ", self.realTimeReconstruct)
     self.transformSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
@@ -152,8 +195,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
       checkbox.checked = 0
-      checkbox.text = ' '
+      checkbox.text = 'Record: '
       checkbox.setToolTip("Activate locator")
+      checkbox.setLayoutDirection(1) # 1 =  QtCore.Qt.RightToLeft
       checkbox.connect(qt.SIGNAL("clicked()"), partial(self.onLocatorRecording, checkbox))
 
       transformLayout = qt.QHBoxLayout()
@@ -163,8 +207,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.locatorReplayCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorReplayCheckBox[i]
       checkbox.checked = 0
-      checkbox.text = ' '
+      checkbox.text = 'Replay: '
       checkbox.setToolTip("Replay locator")
+      checkbox.setLayoutDirection(1)  # 1 =  QtCore.Qt.RightToLeft
       checkbox.connect(qt.SIGNAL("clicked()"), partial(self.onLocatorReplay, checkbox))
       transformLayout.addWidget(checkbox)
       
@@ -206,7 +251,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.loadButton.clicked.connect(self.loadFile)
 
     self.exportImportFormLayout.addRow("Export to directory: ", exportLayout)
-    self.exportImportFormLayout.addRow("File name: ", saveFileLayout)
+    self.exportImportFormLayout.addRow("Export File name: ", saveFileLayout)
     self.exportImportFormLayout.addRow("Import File: ", importLayout)
 
     self.initialize()
@@ -416,45 +461,63 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         slicer.mrmlScene.RemoveNode(modelNode)
     self.initialize(sequenceNodesList, sequenceBrowserNodesList)
 
-  def enableCurrentLocator(self, activeIndex):
-    removeList = {}
-    for i in range(self.nLocators):
-      tnode = self.transformSelector[i].currentNode()
-      if self.locatorActiveCheckBox[i].checked == True:
-        if tnode:
-          self.transformSelector[i].setEnabled(False)
-          self.logic.addLocator(tnode, self.colors[i])
-          mnodeID = tnode.GetAttribute('Locator')
-          removeList[mnodeID] = False
-        else:
-          self.locatorActiveCheckBox[i].setChecked(False)
-          self.transformSelector[i].setEnabled(True)
+  def enableCurrentLocator(self, activeIndex, active):
+    tnode = self.transformSelector[activeIndex].currentNode()
+    if active:
+      if tnode:
+        self.transformSelector[activeIndex].setEnabled(False)
+        self.logic.addLocator(tnode, self.colors[activeIndex])
+        mnodeID = tnode.GetAttribute('Locator')
+        if mnodeID != None:
+          locatorNode = slicer.mrmlScene.GetNodeByID(mnodeID)
+          locatorNode.SetDisplayVisibility(True)
       else:
-        if tnode:
-          mnodeID = tnode.GetAttribute('Locator')
-          if mnodeID != None and not (mnodeID in removeList):
-            removeList[mnodeID] = True
-            self.logic.unlinkLocator(tnode)
-        self.transformSelector[i].setEnabled(True)
+        self.locatorActiveCheckBox[activeIndex].setChecked(False)
+        self.transformSelector[activeIndex].setEnabled(True)
+    else:
+      if tnode:
+        mnodeID = tnode.GetAttribute('Locator')
+        if mnodeID != None:
+          locatorNode = slicer.mrmlScene.GetNodeByID(mnodeID)
+          locatorNode.SetDisplayVisibility(False)
+          locatorNode.RemoveNodeReferenceIDs("transform")
+      self.transformSelector[activeIndex].setEnabled(True)
+
+  def onProcessVarianceChanged(self, value):
+    self.processVariance = self.processVarianceSpinBox.value
+
+  def onMeasurementVarianceChanged(self, value):
+    self.measurementVariance = self.measurementVarianceSpinBox.value
+
+  def  onMovementThresholdChanged(self, value):
+    self.movementThreshold = self.movementThresholdSpinBox.value
+
+  def onDownSampleStepSizeChanged(self, value):
+    self.downSampleStepSize = self.downSampleStepSizeSpinBox.value
 
   def onLocatorRecording(self, checkbox):
     activeIndex = 0
     for i in range(self.nLocators):
       if self.locatorActiveCheckBox[i] == checkbox:
-        activeIndex = i
+        activeIndex = i 
     if checkbox.checked == True:
-      self.enableCurrentLocator(activeIndex)
+      if self.locatorReplayCheckBox[activeIndex].checked:
+        self.locatorReplayCheckBox[activeIndex].click()   
+      self.enableCurrentLocator(activeIndex, True)
       trackedNode = self.transformSelector[activeIndex].currentNode()
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
       self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
       self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
-      if self.realTimeReconstruct.checked:
+      if self.realTimeReconstructCheckBox.checked:
         self.sequenceNodesList[activeIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
       self.recordButton.setChecked(True)
+      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
     else:
       self.recordButton.setChecked(False)
-      if self.realTimeReconstruct.checked:
+      self.enableCurrentLocator(activeIndex, False)
+      if self.realTimeReconstructCheckBox.checked:
         self.sequenceNodesList[activeIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)    
+      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(False)   
 
   def onLocatorReplay(self, checkbox):
     activeIndex = 0
@@ -462,12 +525,15 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorReplayCheckBox[i] == checkbox:
         activeIndex = i
     if checkbox.checked == True:
+      if self.locatorActiveCheckBox[activeIndex].checked:
+        self.locatorActiveCheckBox[activeIndex].click()
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
-      self.enableCurrentLocator(activeIndex)
+      self.enableCurrentLocator(activeIndex, True)
       self.replayButton.setChecked(True)
       self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
     else:
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      self.enableCurrentLocator(activeIndex, False)
       self.replayButton.setChecked(False)
       self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(False)
 
@@ -476,7 +542,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       if self.locatorRecontructButton[i] == button:
         activeIndex = i
-    self.enableCurrentLocator(activeIndex)
+    self.enableCurrentLocator(activeIndex, True)
     self.constructSpecificTrajectory(activeIndex)
    
   @vtk.calldata_type(vtk.VTK_OBJECT)
@@ -485,7 +551,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       if self.sequenceNodesList[i] == caller:
         activeIndex = i
-    self.constructSpecificTrajectory(activeIndex)
+    self.constructSpecificTrajectoryRealTime(activeIndex)
    
   def constructSpecificTrajectory(self, activeIndex):
     seqNode = self.sequenceNodesList[activeIndex]
@@ -496,66 +562,42 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       transMatrix = transformNode.GetMatrixTransformToParent()
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
       posAll.append(pos)
-    filteredPosAll = self.kalmanFilteredPoses(posAll)
-    resampledPos = self.resampleData(filteredPosAll)
-    for pos in resampledPos:
-      self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
-      self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
-    self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
-    self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
-    self.curveManagersList[activeIndex].cmLogic.updateCurve()
-    self.curveManagersList[activeIndex].lockLine() 
-    
-  def kalmanFilteredPoses(self, posAll, Q = 1e-5, R = 0.02**2):
-    #Q = 1e-5  # process variance
-    #R = 0.02 ** 2  # estimate of measurement variance, change to see effect
-    totalLen = len(posAll)
-    # allocate space for arrays
-    phat = numpy.zeros(totalLen)  # a posteri estimate of x
-    P = numpy.zeros(totalLen)  # a posteri error estimate
-    hatminus = numpy.zeros(totalLen)  # a priori estimate of x
-    filteredData = numpy.zeros((totalLen,3))
-    # intial guesses
-    for i in range(3):
-      filteredData[0][i] = posAll[0][i]
-      P_pre = 1.0
-      for k in range(1, totalLen):
-        # time update
-        hatminus[k] = filteredData[k-1][i]
-        Pminus = P_pre + Q
+    if not posAll == []:
+      self.logic.filteredData[activeIndex] = self.logic.kalmanFilteredPoses(posAll, self.processVariance, self.measurementVariance)
+      resampledPos = self.logic.resampleData(self.logic.filteredData[activeIndex], self.movementThreshold, self.downSampleStepSize)
+      for pos in resampledPos:
+        self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
+        self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
+      self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
+      self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
+      self.curveManagersList[activeIndex].cmLogic.updateCurve()
+      self.curveManagersList[activeIndex].lockLine()
+      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
 
-        # measurement update
-        K = Pminus / (Pminus + R)
-        filteredData[k][i] = hatminus[k] + K * (posAll[k][i] - hatminus[k])
-        P_pre = (1 - K) * Pminus
-    return filteredData
-
-  def resampleData(self, data):
-    dataLen = len(data)
-    step = 10
-    pos_mean = numpy.zeros((dataLen/step,3))
-    pos_mean[0,:] = numpy.array([numpy.mean(data[0:step,0]), numpy.mean(data[0:step, 1]), numpy.mean(data[0:step, 2])])
-    pos_DownSampled = []
-    pos_DownSampled.append(pos_mean[0,:])
-    for index in range(step, dataLen-step, step):
-      pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
-      if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>self.distanceThreshold:
-        distance = -1e20
-        indexMax = 0
-        for indexInner in range(step):
-          pos1 = numpy.array(data[index+indexInner,:])
-          if len(pos_DownSampled) > 1:
-            pos2 = pos_DownSampled[-2]
-          else:
-            pos2 = pos_DownSampled[0]  
-          if numpy.linalg.norm(pos1-pos2)>distance:
-            indexMax = indexInner
-            distance = numpy.linalg.norm(pos1-pos2)
-        pos_DownSampled.append(data[index+indexMax,:])
-    pos_downSampledArray = numpy.zeros((len(pos_DownSampled),3)) 
-    for index in range(len(pos_DownSampled)):   
-      pos_downSampledArray[index,:] = pos_DownSampled[index]
-    return pos_downSampledArray
+  def constructSpecificTrajectoryRealTime(self, activeIndex):
+    seqNode = self.sequenceNodesList[activeIndex]
+    #self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
+    transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
+    transMatrix = transformNode.GetMatrixTransformToParent()
+    pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
+    if len(self.logic.filteredData[activeIndex]) == 0:
+      self.logic.filteredData[activeIndex] = numpy.insert(self.logic.filteredData[activeIndex], [0], pos, axis=0)
+    else:
+      filteredPos, pCov = self.logic.kalmanFilteredPosesRealTime(pos, self.logic.filteredData[activeIndex], self.logic.pCov[activeIndex], self.processVariance, self.measurementVariance)
+      currentLen = len(self.logic.filteredData[activeIndex])
+      insertedArray = numpy.insert(self.logic.filteredData[activeIndex], [currentLen], filteredPos, axis=0)
+      self.logic.filteredData[activeIndex] = insertedArray
+      self.logic.pCov[activeIndex] = pCov
+      resampledPos, valid = self.logic.resampleDataRealTime(self.logic.filteredData[activeIndex], self.movementThreshold, self.downSampleStepSize)
+      if valid:
+        self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(resampledPos)
+        fiducialNum = self.trajectoryFidicualsList[activeIndex].GetNumberOfFiducials()
+        self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(fiducialNum-1, "")
+        if self.trajectoryFidicualsList[activeIndex].GetNumberOfFiducials()>1:
+          self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
+          self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
+          self.curveManagersList[activeIndex].cmLogic.updateCurve()
+          self.curveManagersList[activeIndex].lockLine()
     
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
@@ -812,7 +854,7 @@ class CurveManager():
 #
 class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
-  def __init__(self, parent):
+  def __init__(self, parent, nLocators):
     ScriptedLoadableModuleLogic.__init__(self, parent)
 
     self.scene = slicer.mrmlScene
@@ -825,6 +867,11 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     self.connectorNodeID = ''
 
     self.count = 0
+    self.pCov = []
+    self.filteredData = []
+    for i in range(nLocators):
+      self.filteredData.append(numpy.zeros((0,3)))
+      self.pCov.append(1.0)
     
   def setWidget(self, widget):
     self.widget = widget
@@ -832,22 +879,20 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def addLocator(self, tnode, color = [0.5,0.5,1]):
     if tnode:
-      if tnode.GetAttribute('Locator') == None:
+      needleModelID = tnode.GetAttribute('Locator')
+      if needleModelID == None:
         needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
         needleModel = self.scene.GetNodeByID(needleModelID)
+        needleModel.SetAndObserveTransformNodeID(tnode.GetID())  
         needleModel.SetAttribute("vtkMRMLModelNode.rel_needleModel", "True")
-        needleModel.SetAndObserveTransformNodeID(tnode.GetID())
         tnode.SetAttribute('Locator', needleModelID)
         displayNode = needleModel.GetDisplayNode()
         displayNode.SetColor(color)
+      else:
+        needleModel = slicer.mrmlScene.GetNodeByID(needleModelID)
+        if needleModel:
+          needleModel.SetAndObserveTransformNodeID(tnode.GetID())  
         return
-
-
-  def unlinkLocator(self, tnode):
-    if tnode:
-      tnode.RemoveAttribute('Locator')
-      tnode.RemoveAttribute('TrajectoryModel')
-      tnode.RemoveAttribute('TrajectoryFiducial')
 
   def removeLocator(self, mnodeID):
     if mnodeID:
@@ -975,4 +1020,92 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     if delkey != '':
       del self.eventTag[delkey]
 
+
+  def kalmanFilteredPoses(self, posAll, Q = 1e-5, R = 0.02**2):
+    #Q = 1e-5  # process variance
+    #R = 0.02 ** 2  # estimate of measurement variance, change to see effect
+    totalLen = len(posAll)
+    # allocate space for arrays
+    hatminus = numpy.zeros(totalLen)  # a priori estimate
+    filteredData = numpy.zeros((totalLen,3))
+    # intial guesses
+    for i in range(3):
+      filteredData[0][i] = posAll[0][i]
+      P_pre = 1.0
+      for k in range(1, totalLen):
+        # time update
+        hatminus[k] = filteredData[k-1][i]
+        Pminus = P_pre + Q
+
+        # measurement update
+        K = Pminus / (Pminus + R)
+        filteredData[k][i] = hatminus[k] + K * (posAll[k][i] - hatminus[k])
+        P_pre = (1 - K) * Pminus
+    return filteredData
+
+  def kalmanFilteredPosesRealTime(self, pos, filteredDataAll, pCov, Q = 1e-5, R = 0.02**2):
+    #Q = 1e-5  # process variance
+    #R = 0.02 ** 2  # estimate of measurement variance, change to see effect
+    # allocate space for arrays
+    #hatminus = numpy.zeros(totalLen)  # a priori estimate
+    #Intial guesses
+    totalLen = len(filteredDataAll) # current filtered data length
+    filteredPos = numpy.zeros((1,3))
+    for i in range(3):
+
+      # time update
+      hatminus = filteredDataAll[totalLen-1][i]
+      Pminus = pCov + Q
+      # measurement update
+      K = Pminus / (Pminus + R)
+      filteredPos[0][i] = hatminus + K * (pos[i] - hatminus)
+      pCov = (1 - K) * Pminus
+    return filteredPos, pCov
+
+  def resampleData(self, data, movementThreshold = 2.0, step = 10):
+    dataLen = len(data)
+    pos_mean = numpy.zeros((int(dataLen/step),3))
+    pos_mean[0,:] = numpy.array([numpy.mean(data[0:step,0]), numpy.mean(data[0:step, 1]), numpy.mean(data[0:step, 2])])
+    pos_DownSampled = []
+    pos_DownSampled.append(pos_mean[0,:])
+    for index in range(step, dataLen-step, step):
+      pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
+      if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>movementThreshold:
+        distance = -1e20
+        indexMax = 0
+        for indexInner in range(step):
+          pos1 = numpy.array(data[index+indexInner,:])
+          if len(pos_DownSampled) > 1:
+            pos2 = pos_DownSampled[-2]
+          else:
+            pos2 = pos_DownSampled[0]
+          if numpy.linalg.norm(pos1-pos2)>distance:
+            indexMax = indexInner
+            distance = numpy.linalg.norm(pos1-pos2)
+        pos_DownSampled.append(data[index+indexMax,:])
+    pos_downSampledArray = numpy.zeros((len(pos_DownSampled),3))
+    for index in range(len(pos_DownSampled)):
+      pos_downSampledArray[index,:] = pos_DownSampled[index]
+    return pos_downSampledArray
+
+  def resampleDataRealTime(self, data, movementThreshold = 2.0, step = 10):
+    dataLen = len(data)
+    sectionNum = int(dataLen / step)
+    pos_downSampledPoint = numpy.zeros((1,3))
+    if abs(float(dataLen)/step - int(dataLen/step))< 1e-15 and sectionNum >=2: # we have received another section of data
+      pos_mean_pre = numpy.zeros((1,3))
+      pos_mean_pre[0,:] = numpy.array([numpy.mean(data[(sectionNum-2)*step:(sectionNum-1)*step,0]), numpy.mean(data[(sectionNum-2)*step:(sectionNum-1)*step, 1]), numpy.mean(data[(sectionNum-2)*step:(sectionNum-1)*step, 2])])
+      pos_mean  = numpy.zeros((1,3))
+      pos_mean[0,:]  = numpy.array([numpy.mean(data[(sectionNum-1)*step:sectionNum*step, 0]), numpy.mean(data[(sectionNum-1)*step:sectionNum*step, 1]), numpy.mean(data[(sectionNum-1)*step:sectionNum*step, 2])])
+      if numpy.linalg.norm(pos_mean - pos_mean_pre)>movementThreshold:
+        distance = -1e20
+        indexMax = 0
+        for indexInner in range(step):
+          pos1 = numpy.array(data[(sectionNum-1)*step+indexInner,:])
+          if numpy.linalg.norm(pos1-pos_mean_pre)>distance:
+            indexMax = indexInner
+            distance = numpy.linalg.norm(pos1-pos_mean_pre)
+        pos_downSampledPoint = data[(sectionNum-1)*step+indexMax,:]
+        return pos_downSampledPoint, True
+    return pos_downSampledPoint, False
 
