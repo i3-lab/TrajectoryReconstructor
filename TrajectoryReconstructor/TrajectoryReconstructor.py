@@ -216,7 +216,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.locatorRecontructButton.append(qt.QPushButton())
       pushbutton = self.locatorRecontructButton[i]
       pushbutton.setCheckable(False)
-      pushbutton.text = 'ReConstruct'
+      pushbutton.text = 'Reconstruct'
       pushbutton.setToolTip("Generate the trajectory based on the tracked needle")
       pushbutton.connect(qt.SIGNAL("clicked()"), partial(self.onConstructTrajectory, pushbutton))
       transformLayout.addWidget(pushbutton)
@@ -528,6 +528,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorActiveCheckBox[activeIndex].checked:
         self.locatorActiveCheckBox[activeIndex].click()
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[activeIndex])
+      trackedNode = self.transformSelector[activeIndex].currentNode()
+      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
       self.enableCurrentLocator(activeIndex, True)
       self.replayButton.setChecked(True)
       self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)

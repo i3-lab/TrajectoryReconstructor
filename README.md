@@ -1,11 +1,12 @@
 
 ### Overview
-TrajectoryReconstruct is a [3D Slicer](http://slicer.org) Module for MR tracking and trajectory reconstruction.
-![](Screenshots/Animation.gif)
+TrajectoryReconstructor is a [3D Slicer](http://slicer.org) Module for MR tracking and trajectory reconstruction.
+![](Screenshots/Overview.gif)
 ### Usage:
-1. Install the dependent [SlicerOpenIGTLink](https://github.com/openigtlink/SlicerOpenIGTLink), [Sequence](https://github.com/SlicerRt/Sequences) and [CurveMaker](https://github.com/tokjun/CurveMaker) extensions. 
+1. Install the dependent [SlicerOpenIGTLink](https://github.com/openigtlink/SlicerOpenIGTLink), [Sequence](https://github.com/SlicerRt/Sequences) and [CurveMaker](https://github.com/tokjun/CurveMaker) extensions.
+   If you are using Slicer Version earlier than 4.9.0, SlicerOpenIGTLink extension is not required.
 
-2. After install the extensions, the user need to switch to the module `TrajectoryReconstruct`.
+2. After install the extensions, the user need to switch to the module `TrajectoryReconstructor`.
 
 3. Setup the communication with the tracking data client using OpenIGTLinkIF panel, please refer to [SlicerOpenIGTLink](https://github.com/openigtlink/SlicerOpenIGTLink) for more information.
 
@@ -17,11 +18,16 @@ TrajectoryReconstruct is a [3D Slicer](http://slicer.org) Module for MR tracking
 6. Toggle the 'Record' checkbox, the transformation matrix of locator will be recorded and a tool representing the locator will be shown in the 3D view. Once the recording is finished, untoggle the 'Record' checkbox. 
 
 7. Toggle the 'Replay' checkbox will replay the recorded tracking data. Make sure disconnect the communication with the tracking data client before toggling the replay checkbox, as the replay feature uses the same transformation node as the tracking data from client.
+![](Screenshots/RecordAndReplay.gif)
 
 8. Export/Import using Slicer mrmlScene. Just save all the nodes and the mrmlScene in the same folder. Use the saved mrmlScene for importing.
 
-9. Export/Import using csv file.    
-![Alt text](Screenshots/Export-Import.png?raw=true "Export/Import")
+9. Export to csv file. Choose the directory you would like to export the csv file.  Type the file name and click save.
+![](Screenshots/Export.gif)
+
+10. Import csv file. Choose the csv file you would like to import.  Click Load button, a popup window will ask if you really want to proceed as the current mrmlScene will be cleared.
+    After the file is loaded, you could click reconstruct button to reconstruct the trajectory and replay the sequence.
+![](Screenshots/Import.gif)
 
 ### Disclaimer
 
