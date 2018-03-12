@@ -567,14 +567,15 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     if not posAll == []:
       self.logic.filteredData[activeIndex] = self.logic.kalmanFilteredPoses(posAll, self.processVariance, self.measurementVariance)
       resampledPos = self.logic.resampleData(self.logic.filteredData[activeIndex], self.movementThreshold, self.downSampleStepSize)
-      for pos in resampledPos:
-        self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
-        self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
-      self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
-      self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
-      self.curveManagersList[activeIndex].cmLogic.updateCurve()
-      self.curveManagersList[activeIndex].lockLine()
-      self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
+      if len(resampledPos) >=2:
+        for pos in resampledPos:
+          self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
+          self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
+        self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
+        self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
+        self.curveManagersList[activeIndex].cmLogic.updateCurve()
+        self.curveManagersList[activeIndex].lockLine()
+        self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
 
   def constructSpecificTrajectoryRealTime(self, activeIndex):
     seqNode = self.sequenceNodesList[activeIndex]
@@ -1066,29 +1067,31 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def resampleData(self, data, movementThreshold = 2.0, step = 10):
     dataLen = len(data)
-    pos_mean = numpy.zeros((int(dataLen/step),3))
-    pos_mean[0,:] = numpy.array([numpy.mean(data[0:step,0]), numpy.mean(data[0:step, 1]), numpy.mean(data[0:step, 2])])
-    pos_DownSampled = []
-    pos_DownSampled.append(pos_mean[0,:])
-    for index in range(step, dataLen-step, step):
-      pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
-      if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>movementThreshold:
-        distance = -1e20
-        indexMax = 0
-        for indexInner in range(step):
-          pos1 = numpy.array(data[index+indexInner,:])
-          if len(pos_DownSampled) > 1:
-            pos2 = pos_DownSampled[-2]
-          else:
-            pos2 = pos_DownSampled[0]
-          if numpy.linalg.norm(pos1-pos2)>distance:
-            indexMax = indexInner
-            distance = numpy.linalg.norm(pos1-pos2)
-        pos_DownSampled.append(data[index+indexMax,:])
-    pos_downSampledArray = numpy.zeros((len(pos_DownSampled),3))
-    for index in range(len(pos_DownSampled)):
-      pos_downSampledArray[index,:] = pos_DownSampled[index]
-    return pos_downSampledArray
+    if dataLen >= step:
+      pos_mean = numpy.zeros((int(dataLen/step),3))
+      pos_mean[0,:] = numpy.array([numpy.mean(data[0:step,0]), numpy.mean(data[0:step, 1]), numpy.mean(data[0:step, 2])])
+      pos_DownSampled = []
+      pos_DownSampled.append(pos_mean[0,:])
+      for index in range(step, dataLen-step, step):
+        pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
+        if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>movementThreshold:
+          distance = -1e20
+          indexMax = 0
+          for indexInner in range(step):
+            pos1 = numpy.array(data[index+indexInner,:])
+            if len(pos_DownSampled) > 1:
+              pos2 = pos_DownSampled[-2]
+            else:
+              pos2 = pos_DownSampled[0]
+            if numpy.linalg.norm(pos1-pos2)>distance:
+              indexMax = indexInner
+              distance = numpy.linalg.norm(pos1-pos2)
+          pos_DownSampled.append(data[index+indexMax,:])
+      pos_downSampledArray = numpy.zeros((len(pos_DownSampled),3))
+      for index in range(len(pos_DownSampled)):
+        pos_downSampledArray[index,:] = pos_DownSampled[index]
+      return pos_downSampledArray
+    return data
 
   def resampleDataRealTime(self, data, movementThreshold = 2.0, step = 10):
     dataLen = len(data)
