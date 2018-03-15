@@ -39,6 +39,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
   REL_SEQNODE = "vtkMRMLSequenceBrowserNode.rel_seqNode"
+  REL_CHANNELFIDUCIAL = "vtkMRMLMarkupsFiducialNode.rel_channelNumber"
+  REL_CHANNELMODEL = "vtkMRMLModelNode.rel_channelNumber"
+  REL_CHANNELSEQ = "vtkMRMLSequenceNode.rel_channelNumber"
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
     # Instantiate and connect widgets ...
@@ -176,6 +179,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.layout.addWidget(self.selectionCollapsibleButton)
     self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
     self.transformSelector = []
+    self.sequenceSelector = []
     self.locatorActiveCheckBox = []
     self.locatorReplayCheckBox = []
     self.locatorRecontructButton = []
@@ -191,6 +195,18 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       selector.showChildNodeTypes = False
       selector.setMRMLScene( slicer.mrmlScene )
       selector.setToolTip( "Choose a locator transformation matrix" )
+      
+      self.sequenceSelector.append(slicer.qMRMLNodeComboBox())
+      selector = self.sequenceSelector[i]
+      selector.nodeTypes = ( ("vtkMRMLSequenceNode"), "" )
+      selector.selectNodeUponCreation = False
+      selector.addEnabled = True
+      selector.removeEnabled = True
+      selector.noneEnabled = True
+      selector.showHidden = False
+      selector.showChildNodeTypes = False
+      selector.setMRMLScene( slicer.mrmlScene )
+      selector.setToolTip( "Choose a Sequence Node" )
 
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
@@ -267,36 +283,41 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def initialize(self, sequenceNodesList = None, sequenceBrowserNodesList = None):
     self.trajectoryFidicualsList = []
-    self.timeStampsList = []
     self.trajectoryModelsList = []
     self.curveManagersList = []
     self.colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
     for i in range(self.nLocators):
-      self.trajectoryFidicualsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode"))
-      slicer.mrmlScene.AddNode(self.trajectoryFidicualsList[i])
-      self.timeStampsList.append([])
-      self.trajectoryModelsList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode"))
-      slicer.mrmlScene.AddNode(self.trajectoryModelsList[i])
-      self.trajectoryModelsList[i].CreateDefaultDisplayNodes()
-      self.trajectoryModelsList[i].GetDisplayNode().SetOpacity(0.5)
-      self.trajectoryModelsList[i].GetDisplayNode().SetColor(self.colors[i])
-      self.curveManagersList.append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
-      self.curveManagersList[i].connectMarkerNode(self.trajectoryFidicualsList[i])
-      self.curveManagersList[i].connectModelNode(self.trajectoryModelsList[i])
-      self.curveManagersList[i].cmLogic.setTubeRadius(2.50)
-      self.curveManagersList[i].cmLogic.enableAutomaticUpdate(1)
-      self.curveManagersList[i].cmLogic.setInterpolationMethod(1)
+      fiducialNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode")
+      fiducialNode.SetAttribute(self.REL_CHANNELFIDUCIAL, "Channel " + "i")
+      self.trajectoryFidicualsList.append([fiducialNode])
+      slicer.mrmlScene.AddNode(fiducialNode)
+      modelNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode")
+      modelNode.SetAttribute(self.REL_CHANNELMODEL, "Channel " + "i")
+      self.trajectoryModelsList.append([modelNode])
+      slicer.mrmlScene.AddNode(modelNode)
+      modelNode.CreateDefaultDisplayNodes()
+      modelNode.GetDisplayNode().SetOpacity(0.5)
+      modelNode.GetDisplayNode().SetColor(self.colors[i])
+      self.curveManagersList.append([self.logic.createNeedleTrajBaseOnCurveMaker("")])
+      self.curveManagersList[i][0].connectMarkerNode(self.trajectoryFidicualsList[i])
+      self.curveManagersList[i][0].connectModelNode(self.trajectoryModelsList[i])
+      self.curveManagersList[i][0].cmLogic.setTubeRadius(2.50)
+      self.curveManagersList[i][0].cmLogic.enableAutomaticUpdate(1)
+      self.curveManagersList[i][0].cmLogic.setInterpolationMethod(1)
     self.sequenceNodesList = []
     self.sequenceBrowserNodesList = []
     if (sequenceNodesList is None) or (sequenceBrowserNodesList is None):
       for i in range(self.nLocators):
-        self.sequenceNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode"))
-        slicer.mrmlScene.AddNode(self.sequenceNodesList[i])
-        self.sequenceBrowserNodesList.append(slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode"))
-        slicer.mrmlScene.AddNode(self.sequenceBrowserNodesList[i])
-        self.sequenceBrowserNodesList[i].SetAttribute(self.REL_SEQNODE, self.sequenceNodesList[i].GetID())
-        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i])
-        self.sequenceNodeComboBox.setCurrentNode(self.sequenceNodesList[i])
+        seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+        seqNode.SetAttribute(self.REL_CHANNELSEQ, "Channel " + "i")
+        self.sequenceNodesList.append([seqNode])
+        slicer.mrmlScene.AddNode(seqNode)
+        seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+        self.sequenceBrowserNodesList.append([seqBrowserNode])
+        slicer.mrmlScene.AddNode(seqBrowserNode)
+        self.sequenceBrowserNodesList[i][0].SetAttribute(self.REL_SEQNODE, self.sequenceNodesList[i].GetID())
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[i][0])
+        self.sequenceNodeComboBox.setCurrentNode(self.sequenceNodesList[i][0])
         self.addSequenceNodeButton.click()
         self.recordingSamplingSetting.setCurrentIndex(0)
     else:
@@ -304,8 +325,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.sequenceBrowserNodesList = sequenceBrowserNodesList
       for i in range(self.nLocators):
         self.onConstructTrajectory(self.locatorRecontructButton[i])
-    if self.sequenceBrowserNodesList is not None:
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0])
+    if not self.sequenceBrowserNodesList == []:
+      if not self.sequenceBrowserNodesList[0] == []:
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0])
 
   def cleanup(self):
     for i in range(self.nLocators):
@@ -324,7 +346,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     del self.sequenceBrowserNodesList[:]
     del self.trajectoryModelsList[:]
     del self.curveManagersList[:]
-    del self.timeStampsList[:]
     slicer.mrmlScene.Clear(0)
     pass
 
@@ -545,7 +566,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorRecontructButton[i] == button:
         activeIndex = i
     self.enableCurrentLocator(activeIndex, True)
-    self.constructSpecificTrajectory(activeIndex)
+    self.constructSpecificChannel(activeIndex)
    
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def realTimeConstructTrajectory(self, caller, eventId, callData):
@@ -553,54 +574,60 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       if self.sequenceNodesList[i] == caller:
         activeIndex = i
+    self.sequenceNodeComboBox    
     self.constructSpecificTrajectoryRealTime(activeIndex)
+  
+  def constructSpecificChannel(self, channelIndex):
+    seqNodeSubList = self.sequenceNodesList[channelIndex]
+    fiducialNodeSubList = self.trajectoryFidicualsList[channelIndex]
+    for trajectoryIndex in range(len(fiducialNodeSubList)):
+      fiducialNodeSubList[trajectoryIndex].RemoveAllMarkups()
+      self.constructSpecificTrajectory(channelIndex, trajectoryIndex)
    
-  def constructSpecificTrajectory(self, activeIndex):
-    seqNode = self.sequenceNodesList[activeIndex]
-    self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
+  def constructSpecificTrajectory(self, channelIndex, trajectoryIndex):
     posAll = []
+    seqNode = self.sequenceNodesList[channelIndex][trajectoryIndex]
     for index in range(seqNode.GetNumberOfDataNodes()):
       transformNode = seqNode.GetNthDataNode(index)
       transMatrix = transformNode.GetMatrixTransformToParent()
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
       posAll.append(pos)
     if not posAll == []:
-      self.logic.filteredData[activeIndex] = self.logic.kalmanFilteredPoses(posAll, self.processVariance, self.measurementVariance)
-      resampledPos = self.logic.resampleData(self.logic.filteredData[activeIndex], self.movementThreshold, self.downSampleStepSize)
+      self.logic.filteredData[channelIndex][trajectoryIndex] = self.logic.kalmanFilteredPoses(posAll, self.processVariance, self.measurementVariance)
+      resampledPos = self.logic.resampleData(self.logic.filteredData[channelIndex][trajectoryIndex], self.movementThreshold, self.downSampleStepSize)
       if len(resampledPos) >=2:
         for pos in resampledPos:
-          self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(pos)
-          self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(index, "")   
-        self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
-        self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
-        self.curveManagersList[activeIndex].cmLogic.updateCurve()
-        self.curveManagersList[activeIndex].lockLine()
-        self.curveManagersList[activeIndex]._curveModel.SetDisplayVisibility(True)
+          self.trajectoryFidicualsList[channelIndex][trajectoryIndex].AddFiducialFromArray(pos)
+          self.trajectoryFidicualsList[channelIndex][trajectoryIndex].SetNthFiducialLabel(index, "")   
+        self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[channelIndex][trajectoryIndex]._curveModel
+        self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[channelIndex][trajectoryIndex].curveFiducials
+        self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.updateCurve()
+        self.curveManagersList[channelIndex][trajectoryIndex].lockLine()
+        self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
 
-  def constructSpecificTrajectoryRealTime(self, activeIndex):
-    seqNode = self.sequenceNodesList[activeIndex]
-    #self.trajectoryFidicualsList[activeIndex].RemoveAllMarkups()
+  def constructSpecificTrajectoryRealTime(self, channelIndex, trajectoryIndex):
+    seqNode = self.sequenceNodesList[channelIndex][trajectoryIndex]
     transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
     transMatrix = transformNode.GetMatrixTransformToParent()
     pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
-    if len(self.logic.filteredData[activeIndex]) == 0:
-      self.logic.filteredData[activeIndex] = numpy.insert(self.logic.filteredData[activeIndex], [0], pos, axis=0)
+    if len(self.logic.filteredData[channelIndex][trajectoryIndex]) == 0:
+      self.logic.filteredData[channelIndex][trajectoryIndex] = numpy.insert(self.logic.filteredData[channelIndex][trajectoryIndex], [0], pos, axis=0)
     else:
-      filteredPos, pCov = self.logic.kalmanFilteredPosesRealTime(pos, self.logic.filteredData[activeIndex], self.logic.pCov[activeIndex], self.processVariance, self.measurementVariance)
-      currentLen = len(self.logic.filteredData[activeIndex])
-      insertedArray = numpy.insert(self.logic.filteredData[activeIndex], [currentLen], filteredPos, axis=0)
-      self.logic.filteredData[activeIndex] = insertedArray
-      self.logic.pCov[activeIndex] = pCov
-      resampledPos, valid = self.logic.resampleDataRealTime(self.logic.filteredData[activeIndex], self.movementThreshold, self.downSampleStepSize)
+      filteredPos, pCov = self.logic.kalmanFilteredPosesRealTime(pos, self.logic.filteredData[channelIndex][trajectoryIndex], self.logic.pCov[channelIndex][trajectoryIndex], self.processVariance, self.measurementVariance)
+      currentLen = len(self.logic.filteredData[channelIndex][trajectoryIndex])
+      insertedArray = numpy.insert(self.logic.filteredData[channelIndex][trajectoryIndex], [currentLen], filteredPos, axis=0)
+      self.logic.filteredData[channelIndex][trajectoryIndex] = insertedArray
+      self.logic.pCov[channelIndex][trajectoryIndex] = pCov
+      resampledPos, valid = self.logic.resampleDataRealTime(self.logic.filteredData[channelIndex][trajectoryIndex], self.movementThreshold, self.downSampleStepSize)
       if valid:
-        self.trajectoryFidicualsList[activeIndex].AddFiducialFromArray(resampledPos)
-        fiducialNum = self.trajectoryFidicualsList[activeIndex].GetNumberOfFiducials()
-        self.trajectoryFidicualsList[activeIndex].SetNthFiducialLabel(fiducialNum-1, "")
-        if self.trajectoryFidicualsList[activeIndex].GetNumberOfFiducials()>1:
-          self.curveManagersList[activeIndex].cmLogic.DestinationNode = self.curveManagersList[activeIndex]._curveModel
-          self.curveManagersList[activeIndex].cmLogic.SourceNode = self.curveManagersList[activeIndex].curveFiducials
-          self.curveManagersList[activeIndex].cmLogic.updateCurve()
-          self.curveManagersList[activeIndex].lockLine()
+        self.trajectoryFidicualsList[channelIndex][trajectoryIndex].AddFiducialFromArray(resampledPos)
+        fiducialNum = self.trajectoryFidicualsList[channelIndex][trajectoryIndex].GetNumberOfFiducials()
+        self.trajectoryFidicualsList[channelIndex][trajectoryIndex].SetNthFiducialLabel(fiducialNum-1, "")
+        if self.trajectoryFidicualsList[channelIndex][trajectoryIndex].GetNumberOfFiducials()>1:
+          self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[channelIndex][trajectoryIndex]._curveModel
+          self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[channelIndex][trajectoryIndex].curveFiducials
+          self.curveManagersList[channelIndex][trajectoryIndex].cmLogic.updateCurve()
+          self.curveManagersList[channelIndex][trajectoryIndex].lockLine()
     
   def onReload(self, moduleName="TrajectoryReconstructor"):
     # Generic reload method for any scripted module.
@@ -873,8 +900,8 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     self.pCov = []
     self.filteredData = []
     for i in range(nLocators):
-      self.filteredData.append(numpy.zeros((0,3)))
-      self.pCov.append(1.0)
+      self.filteredData.append([numpy.zeros((0,3))])
+      self.pCov.append([1.0])
     
   def setWidget(self, widget):
     self.widget = widget
