@@ -208,7 +208,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       seqSelector.setMRMLScene( slicer.mrmlScene )
       seqSelector.setToolTip( "Choose a Sequence Node" )
       seqSelector.connect("nodeAddedByUser(vtkMRMLNode*)", partial(self.onAddedSequenceNode, seqSelector))
-      #self.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
+      seqSelector.connect("currentNodeChanged(vtkMRMLNode*)", partial(self.onSequenceNodeChange, seqSelector))
+      seqSelector.sortFilterProxyModel().setFilterRegExp("-Channel "+str(i))
 
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
@@ -393,7 +394,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
                 transformNode.SetName(proxyNodeName)
                 self.sequenceNodesList[locatorIndex][trajectoryIndexInLocator].SetDataNodeAtValue(transformNode, timeStamp)
-          rowIndex = rowIndex + 1  
+          rowIndex = rowIndex + 1
     else:
       slicer.util.warningDisplay("file doesn't exists!")
     pass
@@ -525,6 +526,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def addSequenceRelatedNodesInList(self, sequenceNode, sequenceBrowserNode, channelIndex):
     sequenceNode.SetAttribute(self.REL_CHANNELSEQ, "Channel " + str(channelIndex))
+    if not sequenceNode.GetName()[-9:] == ("-Channel " + str(channelIndex)):
+      sequenceNode.SetName(sequenceNode.GetName() + "-Channel " + str(channelIndex))
     self.sequenceNodesList[channelIndex].append(sequenceNode)
     trajectoryIndex = len(self.sequenceNodesList[channelIndex]) - 1
     self.sequenceBrowserNodesList[channelIndex].append(sequenceBrowserNode)
@@ -565,6 +568,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
     slicer.mrmlScene.AddNode(seqBrowserNode)    
     self.addSequenceRelatedNodesInList(addedNode, seqBrowserNode, channelIndex)
+
+  def onSequenceNodeChange(self, selector, selectedNode):
+    channelIndex = 0
+    for i in range(self.nLocators):
+      if self.sequenceSelector[i] == selector:
+        channelIndex = i
+    self.onLocatorReplay(self.locatorReplayCheckBox[channelIndex])
 
   def onLocatorRecording(self, checkbox):
     channelIndex = 0
@@ -610,22 +620,21 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.sequenceNodesList[channelIndex][j] == self.sequenceSelector[channelIndex].currentNode():
         trajectoryIndex = j
         break
-    if checkbox.checked == True:
-      if self.locatorActiveCheckBox[channelIndex].checked:
-        self.locatorActiveCheckBox[channelIndex].click()
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
-      trackedNode = self.transformSelector[channelIndex].currentNode()
-      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
-      self.enableCurrentLocator(channelIndex, True)
-      self.enableCurrentSelectors(channelIndex, False)
-      self.replayButton.setChecked(True)
-      self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
-    else:
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
-      self.enableCurrentLocator(channelIndex, False)
-      self.enableCurrentSelectors(channelIndex, True)
-      self.replayButton.setChecked(False)
-      self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
+    if trajectoryIndex > -1:
+      if checkbox.checked == True:
+        if self.locatorActiveCheckBox[channelIndex].checked:
+          self.locatorActiveCheckBox[channelIndex].click()
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
+        trackedNode = self.transformSelector[channelIndex].currentNode()
+        self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+        self.enableCurrentLocator(channelIndex, True)
+        self.replayButton.setChecked(True)
+        self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+      else:
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
+        self.enableCurrentLocator(channelIndex, False)
+        self.replayButton.setChecked(False)
+        self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
 
   def onConstructTrajectory(self, button):
     channelIndex = 0
