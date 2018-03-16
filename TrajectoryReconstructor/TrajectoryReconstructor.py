@@ -53,7 +53,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.fileString = ""
     self.processVariance = 1e-5
     self.measurementVariance = 0.0004
-    self.movementThreshold = 2.0 # in millimeter
+    self.movementThreshold = 1.0 # in millimeter
     self.downSampleStepSize = 10
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
@@ -154,7 +154,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.measurementVarianceSpinBox.setToolTip("Related to the measurement noise level")
     self.measurementVarianceSpinBox.connect('valueChanged(double)', self.onMeasurementVarianceChanged)
     self.movementThresholdSpinBox = qt.QDoubleSpinBox()
-    self.movementThresholdSpinBox.setValue(2.0)
+    self.movementThresholdSpinBox.setValue(1.0)
     self.movementThresholdSpinBox.setDecimals(2)
     self.movementThresholdSpinBox.setMinimum(0.0)
     self.movementThresholdSpinBox.setSingleStep(0.5)
@@ -293,10 +293,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.sequenceNodesList = [[],[],[],[],[]]
     self.sequenceBrowserNodesList = [[],[],[],[],[]]
     if (sequenceNodesList is not None) and (sequenceBrowserNodesList is not None):
-      self.sequenceNodesList = sequenceNodesList
-      self.sequenceBrowserNodesList = sequenceBrowserNodesList
       for i in range(self.nLocators):
-        self.onConstructTrajectory(self.locatorRecontructButton[i])
+        for j in range(len(sequenceNodesList[i])):
+          self.addSequenceRelatedNodesInList(sequenceNodesList[i][j], sequenceBrowserNodesList[i][j], i)
+      for i in range(self.nLocators):
+        if len(sequenceNodesList[i])>0:
+          self.sequenceSelector[i].setCurrentNode(self.sequenceNodesList[i][0])
+          self.onConstructTrajectory(self.locatorRecontructButton[i])
     if not self.sequenceBrowserNodesList[0] == []:
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0][0])
 
@@ -437,15 +440,17 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def LoadCaseCompletedCallback(self, caller, eventId, callData):
     print("study loaded")
-    sequenceNodesList = []
-    sequenceBrowserNodesList = []
+    sequenceNodesList = [[],[],[],[],[]]
+    sequenceBrowserNodesList = [[],[],[],[],[]]
     sequenceBrowserNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLSequenceBrowserNode")
     for index in range(sequenceBrowserNodesCollection.GetNumberOfItems()):
       sequenceBrowserNode = sequenceBrowserNodesCollection.GetItemAsObject(index)
       sequenceNodeID = sequenceBrowserNode.GetAttribute(self.REL_SEQNODE)
       if slicer.mrmlScene.GetNodeByID(sequenceNodeID):
-        sequenceBrowserNodesList.append(sequenceBrowserNode)
-        sequenceNodesList.append(slicer.mrmlScene.GetNodeByID(sequenceNodeID))
+        seqNode = slicer.mrmlScene.GetNodeByID(sequenceNodeID)
+        channelID = int(seqNode.GetAttribute(self.REL_CHANNELSEQ)[-1])
+        sequenceNodesList[channelID].append(seqNode)
+        sequenceBrowserNodesList[channelID].append(sequenceBrowserNode)
     # We clear all the markups and model from the loaded mrmlScene to reduce complexity.
     # The markups and model for curve maker will be generated in the self.initialization function.
     markupsNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsFiducialNode")
@@ -496,13 +501,11 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def onDownSampleStepSizeChanged(self, value):
     self.downSampleStepSize = self.downSampleStepSizeSpinBox.value
 
-  def addSequenceRelatedNodesInList(self, sequenceNode, channelIndex):
+  def addSequenceRelatedNodesInList(self, sequenceNode, sequenceBrowserNode, channelIndex):
     sequenceNode.SetAttribute(self.REL_CHANNELSEQ, "Channel " + str(channelIndex))
     self.sequenceNodesList[channelIndex].append(sequenceNode)
     trajectoryIndex = len(self.sequenceNodesList[channelIndex]) - 1
-    seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-    self.sequenceBrowserNodesList[channelIndex].append(seqBrowserNode)
-    slicer.mrmlScene.AddNode(seqBrowserNode)
+    self.sequenceBrowserNodesList[channelIndex].append(sequenceBrowserNode)
     self.sequenceBrowserNodesList[channelIndex][trajectoryIndex].SetAttribute(self.REL_SEQNODE,
                                                                               self.sequenceNodesList[channelIndex][
                                                                                 trajectoryIndex].GetID())
@@ -536,7 +539,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       if self.sequenceSelector[i] == selector:
         channelIndex = i
-    self.addSequenceRelatedNodesInList(addedNode, channelIndex)
+    seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+    slicer.mrmlScene.AddNode(seqBrowserNode)    
+    self.addSequenceRelatedNodesInList(addedNode, seqBrowserNode, channelIndex)
 
   def onLocatorRecording(self, checkbox):
     channelIndex = 0
@@ -549,29 +554,27 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.sequenceNodesList[channelIndex][j] == self.sequenceSelector[channelIndex].currentNode():
         trajectoryIndex = j
         break
-    if trajectoryIndex == -1:
-      self.addSequenceRelatedNodesInList(channelIndex)
-
-    if checkbox.checked == True:
-      if self.locatorReplayCheckBox[channelIndex].checked:
-        self.locatorReplayCheckBox[channelIndex].click()
-      self.enableCurrentLocator(channelIndex, True)
-      self.enableCurrentSelectors(channelIndex, False)
-      trackedNode = self.transformSelector[channelIndex].currentNode()
-      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
-      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
-      self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
-      if self.realTimeReconstructCheckBox.checked:
-        self.sequenceNodesList[channelIndex][trajectoryIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
-      self.recordButton.setChecked(True)
-      self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
-    else:
-      self.recordButton.setChecked(False)
-      self.enableCurrentLocator(channelIndex, False)
-      self.enableCurrentSelectors(channelIndex, True)
-      if self.realTimeReconstructCheckBox.checked:
-        self.sequenceNodesList[channelIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
-      self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
+    if trajectoryIndex > -1:
+      if checkbox.checked == True:
+        if self.locatorReplayCheckBox[channelIndex].checked:
+          self.locatorReplayCheckBox[channelIndex].click()
+        self.enableCurrentLocator(channelIndex, True)
+        self.enableCurrentSelectors(channelIndex, False)
+        trackedNode = self.transformSelector[channelIndex].currentNode()
+        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[channelIndex][trajectoryIndex])
+        self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+        self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+        if self.realTimeReconstructCheckBox.checked:
+          self.sequenceNodesList[channelIndex][trajectoryIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
+        self.recordButton.setChecked(True)
+        self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+      else:
+        self.recordButton.setChecked(False)
+        self.enableCurrentLocator(channelIndex, False)
+        self.enableCurrentSelectors(channelIndex, True)
+        if self.realTimeReconstructCheckBox.checked:
+          self.sequenceNodesList[channelIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
+        self.curveManagersList[channelIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
 
   def onLocatorReplay(self, checkbox):
     channelIndex = 0
@@ -607,15 +610,15 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorRecontructButton[i] == button:
         channelIndex = i
     self.enableCurrentLocator(channelIndex, True)
-    trajectoryIndex = -1
-    numOfSequenceNode = len(self.sequenceNodesList[channelIndex])
-    for j in range(numOfSequenceNode):
-      if self.sequenceNodesList[channelIndex][j] == self.sequenceSelector[channelIndex].currentNode():
-        trajectoryIndex = j
-        break
-    if trajectoryIndex == -1:
-      self.addSequenceRelatedNodesInList(channelIndex)
-    self.constructSpecificTrajectory(channelIndex, trajectoryIndex)
+    if self.sequenceSelector[channelIndex].currentNode():
+      trajectoryIndex = -1
+      numOfSequenceNode = len(self.sequenceNodesList[channelIndex])
+      for j in range(numOfSequenceNode):
+        if self.sequenceNodesList[channelIndex][j] == self.sequenceSelector[channelIndex].currentNode():
+          trajectoryIndex = j
+          break
+      if trajectoryIndex > -1:
+        self.constructSpecificTrajectory(channelIndex, trajectoryIndex)
    
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def realTimeConstructTrajectory(self, caller, eventId, callData):
@@ -1139,7 +1142,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
       pCov = (1 - K) * Pminus
     return filteredPos, pCov
 
-  def resampleData(self, data, movementThreshold = 2.0, step = 10):
+  def resampleData(self, data, movementThreshold = 1.0, step = 10):
     dataLen = len(data)
     if dataLen >= step:
       pos_mean = numpy.zeros((int(dataLen/step),3))
@@ -1167,7 +1170,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
       return pos_downSampledArray
     return data
 
-  def resampleDataRealTime(self, data, movementThreshold = 2.0, step = 10):
+  def resampleDataRealTime(self, data, movementThreshold = 1.0, step = 10):
     dataLen = len(data)
     sectionNum = int(dataLen / step)
     pos_downSampledPoint = numpy.zeros((1,3))
