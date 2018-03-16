@@ -352,20 +352,45 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         fileReader = csv.reader(csvfile, delimiter=',',
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
         rowIndex = 0
+        locatorIndexes = []
+        sequenceNodesList = [[],[],[],[],[]]
+        sequenceBrowserNodesList = [[],[],[],[],[]]
         for row in fileReader:
-          numLocatorInRow = int(min(len(row)/self.elementPerLocator, self.nLocators))
+          numTrajectoryInRow = int(len(row)/self.elementPerLocator)
+          locatorIndex = 0
           if rowIndex == 0:
-            for locatorIndex in range(numLocatorInRow):
-              transformNode = slicer.vtkMRMLLinearTransformNode()
-              slicer.mrmlScene.AddNode(transformNode)
-              self.transformSelector[locatorIndex].setCurrentNode(transformNode)
-              self.transformSelector[locatorIndex].currentNode().SetName(row[locatorIndex*self.elementPerLocator])
-              self.trajectoryFidicualsList[locatorIndex].SetLocked(True)
+            locatorName = row[0]
+            transformNode = slicer.vtkMRMLLinearTransformNode()
+            slicer.mrmlScene.AddNode(transformNode)
+            self.transformSelector[locatorIndex].setCurrentNode(transformNode)
+            self.transformSelector[locatorIndex].currentNode().SetName(locatorName) 
+            for trajectoryIndex in range(numTrajectoryInRow):
+              if not locatorName == row[trajectoryIndex*self.elementPerLocator]:
+                locatorIndex = locatorIndex + 1
+                locatorName = row[locatorIndex*self.elementPerLocator]
+                transformNode = slicer.vtkMRMLLinearTransformNode()
+                slicer.mrmlScene.AddNode(transformNode)
+                self.transformSelector[locatorIndex].setCurrentNode(transformNode)
+                self.transformSelector[locatorIndex].currentNode().SetName(locatorName)  
+              locatorIndexes.append(locatorIndex)
+              seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+              slicer.mrmlScene.AddNode(seqBrowserNode)  
+              sequenceBrowserNodesList[locatorIndex].append(seqBrowserNode)
+              seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+              slicer.mrmlScene.AddNode(seqNode)  
+              sequenceNodesList[locatorIndex].append(seqNode)  
           if rowIndex >= 2:
-            for locatorIndex in range(numLocatorInRow):
-              timeStamp = row[locatorIndex*self.elementPerLocator]
+            trajectoryIndexInLocator = -1
+            locatorIndex = locatorIndexes[trajectoryIndex]
+            for trajectoryIndex in range(numTrajectoryInRow):
+              timeStamp = row[trajectoryIndex*self.elementPerLocator]
+              if locatorIndex == locatorIndexes[trajectoryIndex]:
+                trajectoryIndexInLocator = trajectoryIndexInLocator + 1
+              else:
+                trajectoryIndexInLocator= 0  
+              locatorIndex = locatorIndexes[trajectoryIndex]  
               if not timeStamp == "":
-                pos = [float(row[locatorIndex*self.elementPerLocator+1]), float(row[locatorIndex*self.elementPerLocator+2]), float(row[locatorIndex*self.elementPerLocator+3])]
+                pos = [float(row[trajectoryIndex*self.elementPerLocator+1]), float(row[trajectoryIndex*self.elementPerLocator+2]), float(row[trajectoryIndex*self.elementPerLocator+3])]
                 matrix = vtk.vtkMatrix4x4()
                 matrix.Identity()
                 matrix.SetElement(0,3,pos[0])
@@ -375,8 +400,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 transformNode.SetMatrixTransformToParent(matrix)
                 proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
                 transformNode.SetName(proxyNodeName)
-                self.sequenceNodesList[locatorIndex].SetDataNodeAtValue(transformNode, timeStamp)
-          rowIndex = rowIndex + 1
+                sequenceNodesList[locatorIndex][trajectoryIndexInLocator].SetDataNodeAtValue(transformNode, timeStamp)
+          rowIndex = rowIndex + 1  
+        self.initialize(sequenceNodesList, sequenceBrowserNodesList)  
     else:
       slicer.util.warningDisplay("file doesn't exists!")
     pass
@@ -391,41 +417,46 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         title = []
         validLocatorIndex = []
         for i in range(self.nLocators):
-          if self.transformSelector[i].currentNode() is not None:
-            seqNode = self.sequenceNodesList[i]
-            if seqNode.GetNumberOfDataNodes():
-              header.append(self.transformSelector[i].currentNode().GetName())
-              header.append(" ")
-              header.append(" ")
-              header.append(" ")
-              header.append(" ")
-              title.append("TimeStamp")
-              title.append("X")
-              title.append("Y")
-              title.append("Z")
-              title.append(" ")
-              validLocatorIndex.append(i)
+          if not self.sequenceNodesList[i] == []:
+            validLocatorIndex.append(i)
+            for j in range(len(self.sequenceNodesList[i])):
+              seqNode = self.sequenceNodesList[i][j]
+              if seqNode.GetNumberOfDataNodes() and self.transformSelector[i].currentNode():
+                header.append(self.transformSelector[i].currentNode().GetName())
+                header.append(seqNode.GetName())
+                header.append(" ")
+                header.append(" ")
+                header.append(" ")
+                title.append("TimeStamp")
+                title.append("X")
+                title.append("Y")
+                title.append("Z")
+                title.append(" ")
         fileWriter.writerow(header)
         fileWriter.writerow(title)
         maxRowNum = 0
-        for index in validLocatorIndex:
-          seqNode = self.sequenceNodesList[index]
-          if seqNode.GetNumberOfDataNodes() > maxRowNum:
-            maxRowNum = seqNode.GetNumberOfDataNodes()
+        for i in validLocatorIndex:
+          if not self.sequenceNodesList[i] == []:
+            for j in range(len(self.sequenceNodesList[i])):
+              seqNode = self.sequenceNodesList[i][j]
+              if seqNode.GetNumberOfDataNodes() > maxRowNum:
+                maxRowNum = seqNode.GetNumberOfDataNodes()
         for row in range(maxRowNum):    
           poses = []
-          for index in validLocatorIndex:
-            seqNode = self.sequenceNodesList[index]
-            if row < seqNode.GetNumberOfDataNodes():
-              poses.append(str(seqNode.GetNthIndexValue(row)))
-              seqNode = self.sequenceNodesList[index]
-              transformNode = seqNode.GetNthDataNode(row)
-              transMatrix = transformNode.GetMatrixTransformToParent()
-              pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
-              poses.append(str(pos[0]))
-              poses.append(str(pos[1]))
-              poses.append(str(pos[2]))
-              poses.append(" ")
+          for i in validLocatorIndex:
+            if not self.sequenceNodesList[i] == []:
+              for j in range(len(self.sequenceNodesList[i])):
+                seqNode = self.sequenceNodesList[i][j]
+                if row < seqNode.GetNumberOfDataNodes():
+                  poses.append(str(seqNode.GetNthIndexValue(row)))
+                  seqNode = self.sequenceNodesList[i][j]
+                  transformNode = seqNode.GetNthDataNode(row)
+                  transMatrix = transformNode.GetMatrixTransformToParent()
+                  pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
+                  poses.append(str(pos[0]))
+                  poses.append(str(pos[1]))
+                  poses.append(str(pos[2]))
+                  poses.append(" ")
           fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
@@ -516,6 +547,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     fiducialNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode")
     fiducialNode.SetAttribute(self.REL_CHANNELFIDUCIAL, "Channel " + str(channelIndex))
     self.trajectoryFidicualsList[channelIndex].append(fiducialNode)
+    fiducialNode.SetLocked(True)
     slicer.mrmlScene.AddNode(fiducialNode)
     modelNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode")
     modelNode.SetAttribute(self.REL_CHANNELMODEL, "Channel " + str(channelIndex))
