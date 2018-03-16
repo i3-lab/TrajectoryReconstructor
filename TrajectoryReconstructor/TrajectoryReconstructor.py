@@ -305,29 +305,25 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def cleanup(self):
     for i in range(self.nLocators):
-      if not self.sequenceNodesList[i] == []:
-        numberOfSeq = len(self.sequenceNodesList[i])
-        for j in range (numberOfSeq):
-          if self.sequenceNodesList and self.sequenceNodesList[i][j]:
-            slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i][j])
-          if self.sequenceBrowserNodesList and self.sequenceBrowserNodesList[i][j]:
-            slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i][j])
-          if self.trajectoryFidicualsList and self.trajectoryFidicualsList[i][j]:
-            slicer.mrmlScene.RemoveNode(self.trajectoryFidicualsList[i][j])
-          if self.trajectoryModelsList and self.trajectoryModelsList[i][j]:
-            slicer.mrmlScene.RemoveNode(self.trajectoryModelsList[i][j])
-          if self.curveManagersList and self.curveManagersList[i][j]:
-            self.curveManagersList[i][j].clear()
+      if self.sequenceNodesList:
+        if not self.sequenceNodesList[i] == []:
+          numberOfSeq = len(self.sequenceNodesList[i])
+          for j in range (numberOfSeq):
+            if self.sequenceNodesList and self.sequenceNodesList[i][j]:
+              slicer.mrmlScene.RemoveNode(self.sequenceNodesList[i][j])
+            if self.sequenceBrowserNodesList and self.sequenceBrowserNodesList[i][j]:
+              slicer.mrmlScene.RemoveNode(self.sequenceBrowserNodesList[i][j])
+            if self.trajectoryFidicualsList and self.trajectoryFidicualsList[i][j]:
+              slicer.mrmlScene.RemoveNode(self.trajectoryFidicualsList[i][j])
+            if self.trajectoryModelsList and self.trajectoryModelsList[i][j]:
+              slicer.mrmlScene.RemoveNode(self.trajectoryModelsList[i][j])
+            if self.curveManagersList and self.curveManagersList[i][j]:
+              self.curveManagersList[i][j].clear()
     del self.trajectoryFidicualsList[:]
     del self.sequenceNodesList[:]
     del self.sequenceBrowserNodesList[:]
     del self.trajectoryModelsList[:]
     del self.curveManagersList[:]
-    del self.trajectoryFidicualsList
-    del self.sequenceNodesList
-    del self.sequenceBrowserNodesList
-    del self.trajectoryModelsList
-    del self.curveManagersList
     slicer.mrmlScene.Clear(0)
     pass
 
@@ -353,8 +349,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
         rowIndex = 0
         locatorIndexes = []
-        sequenceNodesList = [[],[],[],[],[]]
-        sequenceBrowserNodesList = [[],[],[],[],[]]
         for row in fileReader:
           numTrajectoryInRow = int(len(row)/self.elementPerLocator)
           locatorIndex = 0
@@ -373,12 +367,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 self.transformSelector[locatorIndex].setCurrentNode(transformNode)
                 self.transformSelector[locatorIndex].currentNode().SetName(locatorName)  
               locatorIndexes.append(locatorIndex)
-              seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-              slicer.mrmlScene.AddNode(seqBrowserNode)  
-              sequenceBrowserNodesList[locatorIndex].append(seqBrowserNode)
               seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
               slicer.mrmlScene.AddNode(seqNode)  
-              sequenceNodesList[locatorIndex].append(seqNode)  
+              #sequenceNodesList[locatorIndex].append(seqNode)
+              self.onAddedSequenceNode(self.sequenceSelector[locatorIndex], seqNode)
           if rowIndex >= 2:
             trajectoryIndexInLocator = -1
             locatorIndex = locatorIndexes[trajectoryIndex]
@@ -400,9 +392,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 transformNode.SetMatrixTransformToParent(matrix)
                 proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
                 transformNode.SetName(proxyNodeName)
-                sequenceNodesList[locatorIndex][trajectoryIndexInLocator].SetDataNodeAtValue(transformNode, timeStamp)
+                self.sequenceNodesList[locatorIndex][trajectoryIndexInLocator].SetDataNodeAtValue(transformNode, timeStamp)
           rowIndex = rowIndex + 1  
-        self.initialize(sequenceNodesList, sequenceBrowserNodesList)  
     else:
       slicer.util.warningDisplay("file doesn't exists!")
     pass
