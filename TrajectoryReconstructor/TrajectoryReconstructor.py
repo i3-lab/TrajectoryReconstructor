@@ -182,9 +182,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.layout.addWidget(self.selectionCollapsibleButton)
     self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
     self.transformSelector = []
-    self.sequenceSelector = []
     self.locatorActiveCheckBox = []
     self.trajectoryIndexSpinBox = []
+    self.trajectoryIndexSpinBoxLastValue = []
     self.locatorReplayCheckBox = []
     self.locatorRecontructButton = []
     self.colors = [[0.3, 0.5, 0.5], [0.2, 0.3, 0.6], [0.1, 0.6, 0.5], [0.5, 0.9, 0.5], [0.0, 0.2, 0.8]]
@@ -202,19 +202,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       transSelector.connect("currentNodeChanged(vtkMRMLNode*)", partial(self.onTransNodeChange, transSelector))
       transSelector.connect("nodeAdded(vtkMRMLNode*)", partial(self.onAddedTransNode, transSelector))
       transSelector.setToolTip( "Choose a locator transformation matrix" )
-      
-      self.sequenceSelector.append(slicer.qMRMLNodeComboBox())
-      seqSelector = self.sequenceSelector[i]
-      seqSelector.nodeTypes = ( ("vtkMRMLSequenceNode"), "" )
-      seqSelector.selectNodeUponCreation = True
-      seqSelector.removeEnabled = True
-      seqSelector.noneEnabled = True
-      seqSelector.showHidden = False
-      seqSelector.showChildNodeTypes = False
-      seqSelector.setMRMLScene( slicer.mrmlScene )
-      seqSelector.setToolTip( "Choose a Sequence Node" )
-      seqSelector.connect("nodeAddedByUser(vtkMRMLNode*)", partial(self.onAddedSequenceNode, seqSelector))
-      seqSelector.connect("currentNodeChanged(vtkMRMLNode*)", partial(self.onSequenceNodeChange, seqSelector))
 
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
@@ -227,13 +214,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       selectorLayout = qt.QHBoxLayout()
       recordingLayout = qt.QHBoxLayout()
       selectorLayout.addWidget(transSelector)
-      selectorLayout.addWidget(seqSelector)
       recordingLayout.addWidget(checkbox)
       self.trajectoryIndexSpinBox.append(qt.QSpinBox())
+      self.trajectoryIndexSpinBoxLastValue.append(-1)
       self.trajectoryIndexSpinBox[i].setValue(0)
       self.trajectoryIndexSpinBox[i].setMinimum(0)
       self.trajectoryIndexSpinBox[i].setSingleStep(1)
-      recordingLayout.addWidget(self.trajectoryIndexSpinBox[i])
+      selectorLayout.addWidget(self.trajectoryIndexSpinBox[i])
       self.trajectoryIndexSpinBox[i].connect('valueChanged(int)', partial(self.onTrajectoyIndexChanged, self.trajectoryIndexSpinBox[i]))
       
       self.locatorReplayCheckBox.append(qt.QCheckBox())
@@ -316,7 +303,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
           self.addSequenceRelatedNodesInList(sequenceNodesList[i][j], sequenceBrowserNodesList[i][j], i)
       for i in range(len(sequenceNodesList)):
         if len(sequenceNodesList[i])>0:
-          self.sequenceSelector[i].setCurrentNode(self.sequenceNodesList[i][0])
           self.onConstructTrajectory(self.locatorRecontructButton[i])
     if not self.sequenceBrowserNodesList[0] == []:
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0][0])
@@ -387,8 +373,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
               locatorIndexes.append(locatorIndex)
               seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
               slicer.mrmlScene.AddNode(seqNode)  
-              #sequenceNodesList[locatorIndex].append(seqNode)
-              self.onAddedSequenceNode(self.sequenceSelector[locatorIndex], seqNode)
+              seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(locatorIndex))
+              seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+              slicer.mrmlScene.AddNode(seqBrowserNode)
+              self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
           if rowIndex >= 2:
             trajectoryIndexInLocator = -1
             locatorIndex = locatorIndexes[trajectoryIndex]
@@ -399,7 +387,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
               else:
                 trajectoryIndexInLocator= 0  
               locatorIndex = locatorIndexes[trajectoryIndex]  
-              if not timeStamp == "":
+              if (not timeStamp == " ") and (not timeStamp == "") :
                 pos = [float(row[trajectoryIndex*self.elementPerLocator+1]), float(row[trajectoryIndex*self.elementPerLocator+2]), float(row[trajectoryIndex*self.elementPerLocator+3])]
                 matrix = vtk.vtkMatrix4x4()
                 matrix.Identity()
@@ -434,8 +422,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
             validLocatorIndex.append(i)
             for j in range(len(self.sequenceNodesList[i])):
               seqNode = self.sequenceNodesList[i][j]
-              if seqNode.GetNumberOfDataNodes() and self.transformSelector[i].currentNode():
-                header.append(self.transformSelector[i].currentNode().GetName())
+              if seqNode.GetNumberOfDataNodes() and self.locatorNodeList[i]:
+                header.append(self.locatorNodeList[i].GetName())
                 header.append(seqNode.GetName())
                 header.append(" ")
                 header.append(" ")
@@ -473,6 +461,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                   poses.append(str(pos[2]))
                   poses.append(transformNode.GetAttribute(self.REL_TRAJECTORYINDEX_TRANS))
                   poses.append(" ")
+                else:
+                  poses.append(" ")
+                  poses.append(" ")
+                  poses.append(" ")
+                  poses.append(" ")
+                  poses.append(" ")
+                  poses.append(" ")
           fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
@@ -495,9 +490,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       sequenceNodeID = sequenceBrowserNode.GetAttribute(self.REL_SEQNODE)
       if slicer.mrmlScene.GetNodeByID(sequenceNodeID):
         seqNode = slicer.mrmlScene.GetNodeByID(sequenceNodeID)
-        channelID = int(seqNode.GetAttribute(self.REL_LOCATORINDEX_SEQ)[-1])
-        sequenceNodesList[channelID].append(seqNode)
-        sequenceBrowserNodesList[channelID].append(sequenceBrowserNode)
+        locatorIndex = int(seqNode.GetAttribute(self.REL_LOCATORINDEX_SEQ)[-1])
+        sequenceNodesList[locatorIndex].append(seqNode)
+        sequenceBrowserNodesList[locatorIndex].append(sequenceBrowserNode)
     # We clear all the markups and model from the loaded mrmlScene to reduce complexity.
     # The markups and model for curve maker will be generated in the self.initialization function.
     markupsNodesCollection = slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsFiducialNode")
@@ -514,11 +509,9 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.initialize(sequenceNodesList, sequenceBrowserNodesList)
     for i in range(self.nLocators):
       self.transformSelector[i].setCurrentNode(None)
-      self.sequenceSelector[i].setCurrentNode(None)
 
   def enableCurrentSelectors(self, activeIndex, active):
     self.transformSelector[activeIndex].setEnabled(active)
-    self.sequenceSelector[activeIndex].setEnabled(active)
 
   def enableCurrentLocator(self, activeIndex, active):
     tnode = self.transformSelector[activeIndex].currentNode()
@@ -561,10 +554,28 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(len(self.locatorNodeList)):
       if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
         locatorIndex = i    
-        break    
+        break
     numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-    for j in range(numOfSequenceNode):
-      self.sequenceNodesList[locatorIndex][j].SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(self.trajectoryIndexSpinBox[channelIndex].value))
+    if self.locatorActiveCheckBox[channelIndex].checked == True:
+      self.disableSpecificLocatorRecording(locatorIndex)
+      if numOfSequenceNode < (value+1):
+        while numOfSequenceNode < (value+1):
+          seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+          slicer.mrmlScene.AddNode(seqNode)
+          seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(numOfSequenceNode))
+          seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+          slicer.mrmlScene.AddNode(seqBrowserNode)
+          self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+          numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
+      self.sequenceNodesList[locatorIndex][value].SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(value))
+      self.enableSpecificTrajectoryRecording(locatorIndex, value)
+    if self.locatorReplayCheckBox[channelIndex].checked == True:
+      if self.trajectoryIndexSpinBoxLastValue[channelIndex] >=0 and self.trajectoryIndexSpinBoxLastValue[channelIndex] < numOfSequenceNode:
+        self.disableSpecificTrajectoryReplay(locatorIndex, self.trajectoryIndexSpinBoxLastValue[channelIndex])
+      if self.trajectoryIndexSpinBox[channelIndex].value < numOfSequenceNode:
+        self.enableSpecificTrajectoryReplay(locatorIndex, self.trajectoryIndexSpinBox[channelIndex].value)
+    self.trajectoryIndexSpinBoxLastValue[channelIndex] = value
+
         
     
   def addSequenceRelatedNodesInList(self, sequenceNode, sequenceBrowserNode, locatorIndex):
@@ -603,28 +614,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
     self.logic.pCov[locatorIndex].append(1.0)
 
-  def onAddedSequenceNode(self, selector, addedNode):
-    channelIndex = 0
-    for i in range(self.nLocators):
-      if self.sequenceSelector[i] == selector:
-        channelIndex = i
-    locatorIndex = -1
-    for i in range(len(self.locatorNodeList)):
-      if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
-        locatorIndex = i    
-        break
-    if locatorIndex > -1:  
-      seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-      slicer.mrmlScene.AddNode(seqBrowserNode)    
-      self.addSequenceRelatedNodesInList(addedNode, seqBrowserNode, locatorIndex)
-
-  def onSequenceNodeChange(self, selector, selectedNode):
-    channelIndex = 0
-    for i in range(self.nLocators):
-      if self.sequenceSelector[i] == selector:
-        channelIndex = i
-    self.onLocatorReplay(self.locatorReplayCheckBox[channelIndex])
-    
   def onAddedTransNode(self, selector, addedNode):
     addedNode.SetAttribute(self.REL_LOCATOR, "True") 
     if not self.locatorNodeList == []:
@@ -650,8 +639,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
         locatorIndex = i    
         break
-    if locatorIndex > -1:
-      self.sequenceSelector[channelIndex].sortFilterProxyModel().setFilterRegExp("-Locator " + str(locatorIndex))
 
   def onLocatorRecording(self, checkbox):
     channelIndex = 0
@@ -663,34 +650,60 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
         locatorIndex = i    
         break    
-    trajectoryIndex = -1
+    trajectoryIndex = self.trajectoryIndexSpinBox[channelIndex].value
     numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-    for j in range(numOfSequenceNode):
-      if self.sequenceNodesList[locatorIndex][j] == self.sequenceSelector[channelIndex].currentNode():
-        trajectoryIndex = j
-        break
+    if (self.trajectoryIndexSpinBox[channelIndex].value + 1) > numOfSequenceNode:
+      while numOfSequenceNode < (self.trajectoryIndexSpinBox[channelIndex].value+1):
+        seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+        slicer.mrmlScene.AddNode(seqNode)
+        seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(numOfSequenceNode))
+        seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+        slicer.mrmlScene.AddNode(seqBrowserNode)
+        self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+        numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
     if trajectoryIndex > -1 and locatorIndex > -1:
       if checkbox.checked == True:
-        self.trajectoryIndexSpinBox[channelIndex].value = 0
         if self.locatorReplayCheckBox[channelIndex].checked:
           self.locatorReplayCheckBox[channelIndex].click()
         self.enableCurrentLocator(channelIndex, True)
         self.enableCurrentSelectors(channelIndex, False)
-        trackedNode = self.transformSelector[channelIndex].currentNode()
-        self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex])
-        self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
-        self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
-        if self.realTimeReconstructCheckBox.checked:
-          self.sequenceNodesList[locatorIndex][trajectoryIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
-        self.recordButton.setChecked(True)
-        self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+        self.enableSpecificTrajectoryRecording(locatorIndex, trajectoryIndex)
       else:
-        self.recordButton.setChecked(False)
         self.enableCurrentLocator(channelIndex, False)
         self.enableCurrentSelectors(channelIndex, True)
-        if self.realTimeReconstructCheckBox.checked:
-          self.sequenceNodesList[locatorIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
-        self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
+        self.disableSpecificLocatorRecording(locatorIndex)
+
+  def enableSpecificTrajectoryRecording(self, locatorIndex, trajectoryIndex):
+      trackedNode = self.locatorNodeList[locatorIndex]
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex])
+      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+      self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+      if self.realTimeReconstructCheckBox.checked:
+        self.sequenceNodesList[locatorIndex][trajectoryIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
+      self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetRecordingActive(True)
+      self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+
+  def disableSpecificLocatorRecording(self, locatorIndex):
+    numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
+    for trajectoryIndex in range(numOfSequenceNode):
+      self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetRecordingActive(False)
+      if self.realTimeReconstructCheckBox.checked:
+        self.sequenceNodesList[locatorIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
+      self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
+
+  def enableSpecificTrajectoryReplay(self, locatorIndex, trajectoryIndex):
+      trackedNode = self.locatorNodeList[locatorIndex]
+      self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex])
+      self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
+      self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
+      self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetPlaybackActive(True)
+      self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+
+  def disableSpecificTrajectoryReplay(self, locatorIndex, trajectoryIndex):
+    self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetPlaybackActive(False)
+    if self.realTimeReconstructCheckBox.checked:
+      self.sequenceNodesList[locatorIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
+    self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
 
   def onLocatorReplay(self, checkbox):
     channelIndex = 0
@@ -702,28 +715,18 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
         locatorIndex = i    
         break        
-    trajectoryIndex = -1
     if locatorIndex > -1:
       numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-      for j in range(numOfSequenceNode):
-        if self.sequenceNodesList[locatorIndex][j] == self.sequenceSelector[channelIndex].currentNode():
-          trajectoryIndex = j
-          break
-      if trajectoryIndex > -1:
+      trajectoryIndex = self.trajectoryIndexSpinBox[channelIndex].value
+      if (self.trajectoryIndexSpinBox[channelIndex].value + 1) <= numOfSequenceNode:
         if checkbox.checked == True:
           if self.locatorActiveCheckBox[channelIndex].checked:
             self.locatorActiveCheckBox[channelIndex].click()
-          self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex])
-          trackedNode = self.transformSelector[channelIndex].currentNode()
-          self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
           self.enableCurrentLocator(channelIndex, True)
-          self.replayButton.setChecked(True)
-          self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
+          self.enableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
         else:
-          self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex])
           self.enableCurrentLocator(channelIndex, False)
-          self.replayButton.setChecked(False)
-          self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(False)
+          #self.disableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
 
   def onConstructTrajectory(self, button):
     channelIndex = 0
@@ -731,18 +734,14 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.locatorRecontructButton[i] == button:
         channelIndex = i
     self.enableCurrentLocator(channelIndex, True)
-    if self.sequenceSelector[channelIndex].currentNode():
-      trajectoryIndex = -1
-      locatorIndex = -1
-      for i in range(len(self.sequenceNodesList)):
-        numOfSequenceNode = len(self.sequenceNodesList[i])
-        for j in range(numOfSequenceNode):
-          if self.sequenceNodesList[i][j] == self.sequenceSelector[channelIndex].currentNode():
-            trajectoryIndex = j
-            locatorIndex = i
-            break
-      if trajectoryIndex > -1 and locatorIndex > -1:
-        self.constructSpecificTrajectory(locatorIndex, trajectoryIndex)
+    trajectoryIndex = self.trajectoryIndexSpinBox[channelIndex].value
+    locatorIndex = -1
+    for i in range(len(self.locatorNodeList)):
+      if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
+        locatorIndex = i
+        break
+    if trajectoryIndex > -1 and locatorIndex > -1:
+      self.constructSpecificTrajectory(locatorIndex, trajectoryIndex)
    
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def realTimeConstructTrajectory(self, caller, eventId, callData):
