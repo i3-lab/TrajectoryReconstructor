@@ -52,7 +52,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.logic = TrajectoryReconstructorLogic(self, self.nLocators)
     self.logic.setWidget(self)
     self.elementPerLocator = 6
-    self.dirString = ""
+    self.exportDirString = ""
+    self.importDirString = ""
     self.fileString = ""
     self.processVariance = 5e-5
     self.measurementVariance = 0.0004
@@ -171,11 +172,15 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.downSampleStepSizeSpinBox.setSingleStep(1)
     self.downSampleStepSizeSpinBox.setToolTip("Moving window size for downsampling")
     self.downSampleStepSizeSpinBox.connect('valueChanged(double)', self.onDownSampleStepSizeChanged)
+
+    self.savingSeperateChannelCheckBox = qt.QCheckBox()
+    self.savingSeperateChannelCheckBox.connect(qt.SIGNAL("clicked()"), self.onSavingSeperateChannel)
     self.settingFormLayout.addRow("Real-time Reconstruct: ", self.realTimeReconstructCheckBox)
     self.settingFormLayout.addRow("Process Variance: ", self.processVarianceSpinBox)
     self.settingFormLayout.addRow("Measurement Variance: ", self.measurementVarianceSpinBox)
     self.settingFormLayout.addRow("Movement Threshold: ", self.movementThresholdSpinBox)
     self.settingFormLayout.addRow("Downsample Window Size: ", self.downSampleStepSizeSpinBox)
+    self.settingFormLayout.addRow("SeperateFiles: ", self.savingSeperateChannelCheckBox)
 
     self.selectionCollapsibleButton = ctk.ctkCollapsibleButton()
     self.selectionCollapsibleButton.text = "Locator ON/OFF"
@@ -252,11 +257,11 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.fileNameEditor = qt.QLineEdit()
     self.saveButton = qt.QPushButton()
     self.saveButton.setText("Save")
-    exportLayout = qt.QHBoxLayout()
-    exportLayout.addWidget(self.outputDirBrowserButton)
-    saveFileLayout = qt.QHBoxLayout()
-    saveFileLayout.addWidget(self.fileNameEditor)
-    saveFileLayout.addWidget(self.saveButton)
+    self.exportLayout = qt.QHBoxLayout()
+    self.exportLayout.addWidget(self.outputDirBrowserButton)
+    self.saveFileLayout = qt.QHBoxLayout()
+    self.saveFileLayout.addWidget(self.fileNameEditor)
+    self.saveFileLayout.addWidget(self.saveButton)
     self.outputDirBrowserButton.clicked.connect(self.selectDirectory)
     self.saveButton.clicked.connect(self.saveFile)
 
@@ -264,15 +269,15 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.inputFileBrowserButton.setText("Input CSV file name")
     self.loadButton = qt.QPushButton()
     self.loadButton.setText("Load")
-    importLayout = qt.QHBoxLayout()
-    importLayout.addWidget(self.inputFileBrowserButton)
-    importLayout.addWidget(self.loadButton)
-    self.inputFileBrowserButton.clicked.connect(self.selectFile)
+    self.importLayout = qt.QHBoxLayout()
+    self.importLayout.addWidget(self.inputFileBrowserButton)
+    self.importLayout.addWidget(self.loadButton)
+    self.inputFileBrowserButton.clicked.connect(self.selectForImport)
     self.loadButton.clicked.connect(self.loadFile)
 
-    self.exportImportFormLayout.addRow("Export to directory: ", exportLayout)
-    self.exportImportFormLayout.addRow("Export File name: ", saveFileLayout)
-    self.exportImportFormLayout.addRow("Import File: ", importLayout)
+    self.exportImportFormLayout.addRow("Export to directory: ", self.exportLayout)
+    self.exportImportFormLayout.addRow("Export File name: ", self.saveFileLayout)
+    self.exportImportFormLayout.addRow("Import File: ", self.importLayout)
 
     self.initialize()
 
@@ -332,14 +337,19 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     pass
 
   def selectDirectory(self):
-    self.dirString = self.fileDialog.getExistingDirectory()
-    if len(self.dirString)>20:
-      self.outputDirBrowserButton.setText(".." + self.dirString[-20:])
+    self.exportDirString = self.fileDialog.getExistingDirectory()
+    if len(self.exportDirString)>20:
+      self.outputDirBrowserButton.setText(".." + self.exportDirString[-20:])
 
-  def selectFile(self):
-    self.fileString = self.fileDialog.getOpenFileName()
-    if len(self.fileString)>20:
-      self.inputFileBrowserButton.setText(".." + self.fileString[-20:])
+  def selectForImport(self):
+    if self.savingSeperateChannelCheckBox.checked == True:
+      self.importDirString = self.fileDialog.getExistingDirectory()
+      if len(self.importDirString) > 20:
+        self.inputFileBrowserButton.setText(".." + self.importDirString[-20:])
+    else:
+      self.fileString = self.fileDialog.getOpenFileName()
+      if len(self.fileString)>20:
+        self.inputFileBrowserButton.setText(".." + self.fileString[-20:])
 
 
   def loadFile(self):
@@ -347,6 +357,21 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       return
     self.cleanup()
     self.initialize()
+    if self.savingSeperateChannelCheckBox.checked == True:
+      self.loadFromSeperateFiles()
+    else:
+      self.loadFromOneFile()
+    pass
+
+  def loadFromSeperateFiles(self):
+    startLocatorIndex = 0
+    for file in os.listdir(self.importDirString):
+      self.fileString = os.path.join(self.importDirString, file)
+      self.loadFromOneFile(startLocatorIndex)
+      startLocatorIndex = startLocatorIndex + 1
+    pass
+
+  def loadFromOneFile(self, startLocatorIndex = 0):
     if os.path.isfile(self.fileString):
       with open(self.fileString, 'rb') as csvfile:
         fileReader = csv.reader(csvfile, delimiter=',',
@@ -354,63 +379,131 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         rowIndex = 0
         locatorIndexes = []
         for row in fileReader:
-          numTrajectoryInRow = int(len(row)/self.elementPerLocator)
-          locatorIndex = 0
+          numTrajectoryInRow = int(len(row) / self.elementPerLocator)
+          locatorIndex = startLocatorIndex
           if rowIndex == 0:
             locatorName = row[0]
             transformNode = slicer.vtkMRMLLinearTransformNode()
             slicer.mrmlScene.AddNode(transformNode)
             self.transformSelector[locatorIndex].setCurrentNode(transformNode)
-            self.transformSelector[locatorIndex].currentNode().SetName(locatorName) 
+            self.transformSelector[locatorIndex].currentNode().SetName(locatorName)
             for trajectoryIndex in range(numTrajectoryInRow):
-              if not locatorName == row[trajectoryIndex*self.elementPerLocator]:
+              if not locatorName == row[trajectoryIndex * self.elementPerLocator]:
                 locatorIndex = locatorIndex + 1
-                locatorName = row[trajectoryIndex*self.elementPerLocator]
+                locatorName = row[trajectoryIndex * self.elementPerLocator]
                 transformNode = slicer.vtkMRMLLinearTransformNode()
                 slicer.mrmlScene.AddNode(transformNode)
                 self.transformSelector[locatorIndex].setCurrentNode(transformNode)
-                self.transformSelector[locatorIndex].currentNode().SetName(locatorName)  
+                self.transformSelector[locatorIndex].currentNode().SetName(locatorName)
               locatorIndexes.append(locatorIndex)
               seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
-              slicer.mrmlScene.AddNode(seqNode)  
+              slicer.mrmlScene.AddNode(seqNode)
               seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(locatorIndex))
               seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
               slicer.mrmlScene.AddNode(seqBrowserNode)
               self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
           if rowIndex >= 2:
-            trajectoryIndexInLocator = -1
-            locatorIndex = locatorIndexes[trajectoryIndex]
+            # trajectoryIndexInLocator = -1
             for trajectoryIndex in range(numTrajectoryInRow):
-              timeStamp = row[trajectoryIndex*self.elementPerLocator]
-              if locatorIndex == locatorIndexes[trajectoryIndex]:
-                trajectoryIndexInLocator = trajectoryIndexInLocator + 1
-              else:
-                trajectoryIndexInLocator= 0  
-              locatorIndex = locatorIndexes[trajectoryIndex]  
-              if (not timeStamp == " ") and (not timeStamp == "") :
-                pos = [float(row[trajectoryIndex*self.elementPerLocator+1]), float(row[trajectoryIndex*self.elementPerLocator+2]), float(row[trajectoryIndex*self.elementPerLocator+3])]
+              timeStamp = row[trajectoryIndex * self.elementPerLocator]
+              # trajectoryIndexInLocator = (trajectoryIndexInLocator + 1) if locatorIndex == locatorIndexes[trajectoryIndex] else 0
+              locatorIndex = locatorIndexes[trajectoryIndex]
+              if (not timeStamp == " ") and (not timeStamp == ""):
+                pos = [float(row[trajectoryIndex * self.elementPerLocator + 1]),
+                       float(row[trajectoryIndex * self.elementPerLocator + 2]),
+                       float(row[trajectoryIndex * self.elementPerLocator + 3])]
                 matrix = vtk.vtkMatrix4x4()
                 matrix.Identity()
-                matrix.SetElement(0,3,pos[0])
-                matrix.SetElement(1,3,pos[1])
-                matrix.SetElement(2,3,pos[2])
+                matrix.SetElement(0, 3, pos[0])
+                matrix.SetElement(1, 3, pos[1])
+                matrix.SetElement(2, 3, pos[2])
                 transformNode = slicer.vtkMRMLLinearTransformNode()
                 transformNode.SetMatrixTransformToParent(matrix)
                 proxyNodeName = self.transformSelector[locatorIndex].currentNode().GetName()
                 transformNode.SetName(proxyNodeName)
-                seqNode = self.sequenceNodesList[locatorIndex][trajectoryIndexInLocator]
+                subTrajectoryIndex = int(row[trajectoryIndex * self.elementPerLocator + 4])
+                if subTrajectoryIndex >= len(self.sequenceNodesList[locatorIndex]):
+                  seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+                  slicer.mrmlScene.AddNode(seqNode)
+                  seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(locatorIndex))
+                  seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+                  slicer.mrmlScene.AddNode(seqBrowserNode)
+                  self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+                seqNode = self.sequenceNodesList[locatorIndex][subTrajectoryIndex]
                 seqNode.SetDataNodeAtValue(transformNode, timeStamp)
-                subTrajectoryIndex = str(row[trajectoryIndex*self.elementPerLocator+4])
-                transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
+                transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes() - 1)
                 transformNode.SetAttribute(self.REL_TRAJECTORYINDEX_TRANS, str(subTrajectoryIndex))
           rowIndex = rowIndex + 1
     else:
       slicer.util.warningDisplay("file doesn't exists!")
-    pass
+
+  def onSavingSeperateChannel(self):
+    if self.savingSeperateChannelCheckBox.checked == True:
+      self.fileNameEditor.visible = False
+      self.exportLayout.addWidget(self.saveButton)
+      self.exportImportFormLayout = qt.QFormLayout(self.exportImportCollapsibleButton)
+      self.exportImportFormLayout.addRow("Export to directory: ", self.exportLayout)
+      self.exportImportFormLayout.addRow("Import Directory: ", self.importLayout)
+    else :
+      self.fileNameEditor.visible = True
+      self.saveFileLayout.addWidget(self.saveButton)
+      self.exportImportFormLayout = qt.QFormLayout(self.exportImportCollapsibleButton)
+      self.exportImportFormLayout.addRow("Export to directory: ", self.exportLayout)
+      self.exportImportFormLayout.addRow("Export File name: ", self.saveFileLayout)
+      self.exportImportFormLayout.addRow("Import Directory: ", self.importLayout)
 
   def saveFile(self):
-    if os.path.exists(self.dirString):
-      fileName = os.path.join(self.dirString, self.fileNameEditor.text)
+    if self.savingSeperateChannelCheckBox.checked == False:
+      self.saveInOneFile()
+    else:
+      self.saveInDifferentFiles()
+    pass
+
+  def saveInDifferentFiles(self):
+    if os.path.exists(self.exportDirString):
+      for i in range(len(self.locatorNodeList)):
+        if self.locatorNodeList[i] and (not self.sequenceNodesList[i] == []):
+          locatorName = self.locatorNodeList[i].GetName()
+          fileName = os.path.join(self.exportDirString, locatorName)
+          with open(fileName, 'wb') as csvfile:
+            fileWriter = csv.writer(csvfile, delimiter=',',
+                                    quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            header = []
+            title = []
+            header.append(self.locatorNodeList[i].GetName())
+            header.append(" ")
+            header.append(" ")
+            header.append(" ")
+            header.append(" ")
+            header.append(" ")
+            title.append("TimeStamp")
+            title.append("X")
+            title.append("Y")
+            title.append("Z")
+            title.append("TrajectoryIndex")
+            title.append(" ")
+            fileWriter.writerow(header)
+            fileWriter.writerow(title)
+            for j in range(len(self.sequenceNodesList[i])):
+              seqNode = self.sequenceNodesList[i][j]
+              for row in range(seqNode.GetNumberOfDataNodes()):
+                pos = []
+                pos.append(str(seqNode.GetNthIndexValue(row)))
+                seqNode = self.sequenceNodesList[i][j]
+                transformNode = seqNode.GetNthDataNode(row)
+                transMatrix = transformNode.GetMatrixTransformToParent()
+                pos.append(str(transMatrix.GetElement(0, 3)))
+                pos.append(str(transMatrix.GetElement(1, 3)))
+                pos.append(str(transMatrix.GetElement(2, 3)))
+                pos.append(transformNode.GetAttribute(self.REL_TRAJECTORYINDEX_TRANS))
+                pos.append(" ")
+                fileWriter.writerow(pos)
+    else:
+      slicer.util.warningDisplay("Path doesn't exists!")
+
+  def saveInOneFile(self):
+    if os.path.exists(self.exportDirString):
+      fileName = os.path.join(self.exportDirString, self.fileNameEditor.text)
       with open(fileName, 'wb') as csvfile:
         fileWriter = csv.writer(csvfile, delimiter=',',
                                 quotechar='|', quoting=csv.QUOTE_MINIMAL)
@@ -444,7 +537,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
               seqNode = self.sequenceNodesList[i][j]
               if seqNode.GetNumberOfDataNodes() > maxRowNum:
                 maxRowNum = seqNode.GetNumberOfDataNodes()
-        for row in range(maxRowNum):    
+        for row in range(maxRowNum):
           poses = []
           for i in validLocatorIndex:
             if not self.sequenceNodesList[i] == []:
@@ -471,7 +564,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
           fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
-    pass
 
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def StartCaseImportCallback(self, caller, eventId, callData):
@@ -718,6 +810,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     if locatorIndex > -1:
       numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
       trajectoryIndex = self.trajectoryIndexSpinBox[channelIndex].value
+      self.trajectoryIndexSpinBoxLastValue[channelIndex] = trajectoryIndex
       if (self.trajectoryIndexSpinBox[channelIndex].value + 1) <= numOfSequenceNode:
         if checkbox.checked == True:
           if self.locatorActiveCheckBox[channelIndex].checked:
