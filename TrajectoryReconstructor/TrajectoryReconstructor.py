@@ -43,7 +43,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   REL_LOCATORINDEX_MODEL = "vtkMRMLModelNode.rel_locatorIndex"
   REL_LOCATORINDEX_SEQ = "vtkMRMLSequenceNode.rel_locatorIndex"
   REL_LOCATOR = "vtkMRMLLinearTranformNode.rel_locator"
-  REL_TRAJECTORYINDEX_TRANS = "vtkMRMLLinearTranformNode.rel_trajectoryIndex"
+  #REL_TRAJECTORYINDEX_TRANS = "vtkMRMLLinearTranformNode.rel_trajectoryIndex"
   REL_TRAJECTORYINDEX_SEQ = "vtkMRMLSequenceNode.rel_trajectoryIndex"
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
@@ -153,7 +153,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.processVarianceSpinBox.connect('valueChanged(double)', self.onProcessVarianceChanged)
     self.measurementVarianceSpinBox = qt.QDoubleSpinBox()
     self.measurementVarianceSpinBox.setDecimals(4)
-    self.measurementVarianceSpinBox.setValue(0.004)
+    self.measurementVarianceSpinBox.setValue(0.001)
     self.measurementVarianceSpinBox.setSingleStep(0.001)
     self.measurementVarianceSpinBox.setToolTip("Related to the measurement noise level")
     self.measurementVarianceSpinBox.connect('valueChanged(double)', self.onMeasurementVarianceChanged)
@@ -431,8 +431,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                   self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
                 seqNode = self.sequenceNodesList[locatorIndex][subTrajectoryIndex]
                 seqNode.SetDataNodeAtValue(transformNode, timeStamp)
-                transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes() - 1)
-                transformNode.SetAttribute(self.REL_TRAJECTORYINDEX_TRANS, str(subTrajectoryIndex))
+                seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(subTrajectoryIndex))
           rowIndex = rowIndex + 1
     else:
       slicer.util.warningDisplay("file doesn't exists!")
@@ -486,18 +485,30 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
             fileWriter.writerow(title)
             for j in range(len(self.sequenceNodesList[i])):
               seqNode = self.sequenceNodesList[i][j]
+              posValid = True
               for row in range(seqNode.GetNumberOfDataNodes()):
-                pos = []
-                pos.append(str(seqNode.GetNthIndexValue(row)))
                 seqNode = self.sequenceNodesList[i][j]
                 transformNode = seqNode.GetNthDataNode(row)
                 transMatrix = transformNode.GetMatrixTransformToParent()
-                pos.append(str(transMatrix.GetElement(0, 3)))
-                pos.append(str(transMatrix.GetElement(1, 3)))
-                pos.append(str(transMatrix.GetElement(2, 3)))
-                pos.append(transformNode.GetAttribute(self.REL_TRAJECTORYINDEX_TRANS))
-                pos.append(" ")
-                fileWriter.writerow(pos)
+                rowString = []
+                pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3) , transMatrix.GetElement(2, 3)]
+                timeStamp = float(seqNode.GetNthIndexValue(row))
+                if row > 0:
+                  transformNode_pre = seqNode.GetNthDataNode(row-1)
+                  transMatrix_pre = transformNode_pre.GetMatrixTransformToParent()        
+                  pos_pre = [transMatrix_pre.GetElement(0, 3), transMatrix_pre.GetElement(1, 3) , transMatrix_pre.GetElement(2, 3)]
+                  if numpy.linalg.norm(numpy.array(pos)-numpy.array(pos_pre)) < 1e-8:
+                    posValid = False
+                  else:  
+                    posValid = True
+                if posValid:    
+                  rowString.append(timeStamp)
+                  rowString.append(pos[0])
+                  rowString.append(pos[1])
+                  rowString.append(pos[2])
+                  rowString.append(seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
+                  rowString.append(" ")
+                  fileWriter.writerow(rowString)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
 
@@ -552,7 +563,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                   poses.append(str(pos[0]))
                   poses.append(str(pos[1]))
                   poses.append(str(pos[2]))
-                  poses.append(transformNode.GetAttribute(self.REL_TRAJECTORYINDEX_TRANS))
+                  poses.append(seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
                   poses.append(" ")
                 else:
                   poses.append(" ")
@@ -771,6 +782,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.sequenceNodeCellWidget.cellWidget(0, 1).setCurrentNode(trackedNode)
       self.sequenceNodeCellWidget.cellWidget(0, 3).setChecked(True)
       if self.realTimeReconstructCheckBox.checked:
+        self.sequenceNodesList[locatorIndex][trajectoryIndex].RemoveObserver(vtk.vtkCommand.ModifiedEvent)
         self.sequenceNodesList[locatorIndex][trajectoryIndex].AddObserver(vtk.vtkCommand.ModifiedEvent, self.realTimeConstructTrajectory)
       self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetRecordingActive(True)
       self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
@@ -879,7 +891,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def constructSpecificTrajectoryRealTime(self, locatorIndex, trajectoryIndex):
     seqNode = self.sequenceNodesList[locatorIndex][trajectoryIndex]
     transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
-    transformNode.SetAttribute(self.REL_TRAJECTORYINDEX_TRANS, seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
     transMatrix = transformNode.GetMatrixTransformToParent()
     pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
     if len(self.logic.filteredData[locatorIndex][trajectoryIndex]) == 0:
@@ -924,7 +935,7 @@ class CurveManager():
     self.curveFiducials = None
     self._curveModel = None
     self.opacity = 1
-    self.tubeRadius = 1.0
+    self.tubeRadius = 0.5
     self.curveName = ""
     self.curveModelName = ""
     self.step = 1
@@ -1204,27 +1215,6 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
           if dnode:
             self.scene.RemoveNode(dnode)
         self.scene.RemoveNode(mnode)
-
-  def onNewDeviceEvent(self, caller, event, obj=None):
-
-    cnode = self.scene.GetNodeByID(self.connectorNodeID)
-    nInNode = cnode.GetNumberOfIncomingMRMLNodes()
-    print nInNode
-    for i in range (nInNode):
-      node = cnode.GetIncomingMRMLNode(i)
-      if not node.GetID() in self.eventTag:
-        self.eventTag[node.GetID()] = node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onIncomingNodeModifiedEvent)
-        if node.GetNodeTagName() == 'IGTLTrackingDataSplitter':
-          n = node.GetNumberOfTransformNodes()
-          for id in range (n):
-            tnode = node.GetTransformNode(id)
-            if tnode and tnode.GetAttribute('Locator') == None:
-              print "No Locator"
-              needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
-              needleModel = self.scene.GetNodeByID(needleModelID)
-              needleModel.SetAndObserveTransformNodeID(tnode.GetID())
-              needleModel.InvokeEvent(slicer.vtkMRMLTransformableNode.TransformModifiedEvent)
-              tnode.SetAttribute('Locator', needleModelID)
 
   def createNeedleModel(self, node):
     if node and node.GetClassName() == 'vtkMRMLIGTLTrackingDataBundleNode':
