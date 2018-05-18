@@ -86,11 +86,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     # Connector Create and Interaction
     #
     self.openIGTLinkIFWidget = slicer.modules.openigtlinkif.widgetRepresentation()
-    self.connectorCollapsibleButton = None
-    for child in self.openIGTLinkIFWidget.children():
-      if child.className() == 'ctkCollapsibleButton':
-        if child.text == 'Connectors':
-          self.connectorCollapsibleButton = child
+    self.connectorCollapsibleButton = self.openIGTLinkIFWidget.findChild("ctkCollapsibleButton", "ConnectorListFrame")
     if self.connectorCollapsibleButton is None:
       return slicer.util.warningDisplay(
         "Error: Could not load OpenIGTLink widget. either Extension is missing or the API of OpenIGTLink is changed.")
@@ -796,7 +792,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
           self.enableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
         else:
           self.enableCurrentLocator(channelIndex, False)
-          #self.disableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
+          self.disableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
 
   def onConstructTrajectory(self, button):
     channelIndex = 0
