@@ -61,52 +61,17 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.downSampleStepSize = 10
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
-    self.browsingWidget = None
-    self.playWidget = None
-    self.replayButton = None
-    self.recordButton = None
-    self.synchonizedNodesWidget = None
-    self.sequenceNodeComboBox = None
-    self.addSequenceNodeButton = None
-    self.removeSequenceNodeButton = None
-    self.sequenceNodeCellWidget = None
-    self.sequenceBrowserSetting = None
-    self.recordingSamplingSetting = None
-    for child in self.sequenceBrowserWidget.children():
-      if child.className() == "ctkCollapsibleButton":
-        if child.text == 'Browsing':
-          self.browsingWidget = child
-          for grandChild in self.browsingWidget.children():
-            if grandChild.className() == "qMRMLSequenceBrowserPlayWidget":
-              self.playWidget = grandChild
-              for grandGrandChild in self.playWidget.children():
-                if grandGrandChild.className() == "QPushButton":
-                  if grandGrandChild.toolTip == '<p>Play/Pause</p>':
-                    self.replayButton = grandGrandChild
-                  elif grandGrandChild.toolTip == '<p>Record proxy nodes modifications continuously</p>':
-                    self.recordButton = grandGrandChild
-        elif child.text == 'Synchronized nodes':
-          self.synchonizedNodesWidget = child
-          for grandChild in self.synchonizedNodesWidget.children():
-            if grandChild.className() == "qMRMLNodeComboBox":
-              self.sequenceNodeComboBox = grandChild
-            elif grandChild.className() == "QPushButton" and grandChild.toolTip == '<p>Add the selected sequence to the browser.</p>':
-              self.addSequenceNodeButton = grandChild
-            elif grandChild.className() == "QPushButton" and grandChild.toolTip == '<p>Remove the selected sequence(s) from the browser.</p>':
-              self.removeSequenceNodeButton = grandChild
-            elif grandChild.className() == "QTableWidget":
-              self.sequenceNodeCellWidget = grandChild
-        elif child.text == "Advanced":
-          self.sequenceBrowserSetting = child
-          for grandChild in self.sequenceBrowserSetting.children():
-            if grandChild.className() == "QComboBox": # set the recording speed to Maximum
-              self.recordingSamplingSetting = grandChild
-              break
+    self.replayButton = self.sequenceBrowserWidget.findChild("QPushButton","pushButton_VcrPlayPause")
+    self.recordButton = self.sequenceBrowserWidget.findChild("QPushButton","pushButton_VcrRecord")
+    self.sequenceNodeComboBox = self.sequenceBrowserWidget.findChild("qMRMLNodeComboBox","MRMLNodeComboBox_SynchronizeSequenceNode")
+    self.addSequenceNodeButton = self.sequenceBrowserWidget.findChild("QPushButton","pushButton_AddSequenceNode")
+    self.removeSequenceNodeButton = self.sequenceBrowserWidget.findChild("QPushButton","pushButton_RemoveSequenceNode")
+    self.sequenceNodeCellWidget = self.sequenceBrowserWidget.findChild("QTableWidget", "tableWidget_SynchronizedSequenceNodes")
+    self.recordingSamplingSetting = self.sequenceBrowserWidget.findChild("QComboBox", "comboBox_RecordingSamplingMode")
 
-    if (self.sequenceBrowserWidget is None) or (self.browsingWidget is None) or (self.playWidget is None) or \
-       (self.replayButton is None) or (self.recordButton is None) or (self.synchonizedNodesWidget is None) or \
+    if (self.sequenceBrowserWidget is None) or (self.replayButton is None) or (self.recordButton is None) or \
        (self.sequenceNodeComboBox is None) or (self.addSequenceNodeButton is None) or (self.removeSequenceNodeButton is None) or \
-       (self.sequenceNodeCellWidget is None) or (self.sequenceBrowserSetting is None) or (self.recordingSamplingSetting is None) :
+       (self.sequenceNodeCellWidget is None) or (self.recordingSamplingSetting is None) :
       return slicer.util.warningDisplay(
         "Error: Could not load SequenceBrowser widget. either Extension is missing or the API of SequenceBrowser is changed.")
 
