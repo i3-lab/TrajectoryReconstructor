@@ -55,6 +55,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.exportDirString = ""
     self.importDirString = ""
     self.fileString = ""
+    self.maximumFileNameLen = 20
     self.processVariance = 5e-5
     self.measurementVariance = 0.0004
     self.movementThreshold = 1.0 # in millimeter
@@ -131,24 +132,27 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.downSampleStepSizeSpinBox.setValue(10)
     self.downSampleStepSizeSpinBox.setMinimum(1)
     self.downSampleStepSizeSpinBox.setSingleStep(1)
-    self.downSampleStepSizeSpinBox.setToolTip("Moving window size for downsampling")
+    self.downSampleStepSizeSpinBox.setToolTip("Moving window size for downsampling, this variable is used in combination with the movement threshold")
     self.downSampleStepSizeSpinBox.connect('valueChanged(double)', self.onDownSampleStepSizeChanged)
 
     self.savingSeperateChannelCheckBox = qt.QCheckBox()
     self.savingSeperateChannelCheckBox.connect(qt.SIGNAL("clicked()"), self.onSavingSeperateChannel)
+    self.savingSeperateChannelCheckBox.setToolTip("When this check box is checked, tracking data in different channel will be saved in different files.")
+    self.removeDuplicatePosCheckBox = qt.QCheckBox()
     self.settingFormLayout.addRow("Real-time Reconstruct: ", self.realTimeReconstructCheckBox)
     self.settingFormLayout.addRow("Process Variance: ", self.processVarianceSpinBox)
     self.settingFormLayout.addRow("Measurement Variance: ", self.measurementVarianceSpinBox)
     self.settingFormLayout.addRow("Movement Threshold: ", self.movementThresholdSpinBox)
     self.settingFormLayout.addRow("Downsample Window Size: ", self.downSampleStepSizeSpinBox)
     self.settingFormLayout.addRow("SeperateFiles: ", self.savingSeperateChannelCheckBox)
+    self.settingFormLayout.addRow("Remove Duplicated Positions: ", self.removeDuplicatePosCheckBox)
 
     self.selectionCollapsibleButton = ctk.ctkCollapsibleButton()
     self.selectionCollapsibleButton.text = "Locator ON/OFF"
     self.layout.addWidget(self.selectionCollapsibleButton)
     self.selectionFormLayout = qt.QFormLayout(self.selectionCollapsibleButton)
     self.transformSelector = []
-    self.locatorActiveCheckBox = []
+    self.locatorRecordCheckBox = []
     self.trajectoryIndexSpinBox = []
     self.trajectoryIndexSpinBoxLastValue = []
     self.locatorReplayCheckBox = []
@@ -165,12 +169,11 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       transSelector.showHidden = False
       transSelector.showChildNodeTypes = False
       transSelector.setMRMLScene( slicer.mrmlScene )
-      transSelector.connect("currentNodeChanged(vtkMRMLNode*)", partial(self.onTransNodeChange, transSelector))
-      transSelector.connect("nodeAdded(vtkMRMLNode*)", partial(self.onAddedTransNode, transSelector))
+      transSelector.connect("nodeAdded(vtkMRMLNode*)", self.onAddedTransNode)
       transSelector.setToolTip( "Choose a locator transformation matrix" )
 
-      self.locatorActiveCheckBox.append(qt.QCheckBox())
-      checkbox = self.locatorActiveCheckBox[i]
+      self.locatorRecordCheckBox.append(qt.QCheckBox())
+      checkbox = self.locatorRecordCheckBox[i]
       checkbox.checked = 0
       checkbox.text = 'Record: '
       checkbox.setToolTip("Activate locator")
@@ -252,6 +255,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.layout.addStretch(1)
 
   def initialize(self, sequenceNodesList = None, sequenceBrowserNodesList = None):
+    """
+    Initialize variables in the widget to be empty lists if either sequence node and sequence browser node are not provided \
+    When both sequence node and sequence browser node are provided, add the sequence ralated nodes and contruct the trajectories for all sequences.
+    :param sequenceNodesList:
+    :param sequenceBrowserNodesList:
+    :return: None
+    """
     self.trajectoryFidicualsList = [[],[],[],[],[]]
     self.trajectoryModelsList = [[],[],[],[],[]]
     self.curveManagersList = [[],[],[],[],[]]
@@ -264,12 +274,12 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         transformNode = transformCollection.GetItemAsObject(index)
         if transformNode.GetAttribute(self.REL_LOCATOR) is not None:
           self.locatorNodeList.append(transformNode)
-      for i in range(len(sequenceNodesList)):
-        for j in range(len(sequenceNodesList[i])):
-          self.addSequenceRelatedNodesInList(sequenceNodesList[i][j], sequenceBrowserNodesList[i][j], i)
-      for i in range(len(sequenceNodesList)):
-        if len(sequenceNodesList[i])>0:
-          self.onConstructTrajectory(self.locatorRecontructButton[i])
+      for locatorIndex in range(len(sequenceNodesList)):
+        for j in range(len(sequenceNodesList[locatorIndex])):
+          self.addSequenceRelatedNodesInList(locatorIndex, j, sequenceNodesList[locatorIndex][j], sequenceBrowserNodesList[locatorIndex][j])
+      for locatorIndex in range(len(sequenceNodesList)):
+        if len(sequenceNodesList[locatorIndex])>0:
+          self.onConstructTrajectory(self.locatorRecontructButton[locatorIndex])
     if not self.sequenceBrowserNodesList[0] == []:
       self.sequenceBrowserWidget.setActiveBrowserNode(self.sequenceBrowserNodesList[0][0])
 
@@ -298,22 +308,34 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     pass
 
   def selectDirectory(self):
+    """
+    Select the directory for data export
+    :return: None
+    """
     self.exportDirString = self.fileDialog.getExistingDirectory()
-    if len(self.exportDirString)>20:
-      self.outputDirBrowserButton.setText(".." + self.exportDirString[-20:])
+    if len(self.exportDirString)>self.maximumFileNameLen:
+      self.outputDirBrowserButton.setText(".." + self.exportDirString[-self.maximumFileNameLen:])
 
   def selectForImport(self):
+    """
+    Select the directory for data import
+    :return:
+    """
     if self.savingSeperateChannelCheckBox.checked == True:
       self.importDirString = self.fileDialog.getExistingDirectory()
-      if len(self.importDirString) > 20:
-        self.inputFileBrowserButton.setText(".." + self.importDirString[-20:])
+      if len(self.importDirString) > self.maximumFileNameLen:
+        self.inputFileBrowserButton.setText(".." + self.importDirString[-self.maximumFileNameLen:])
     else:
       self.fileString = self.fileDialog.getOpenFileName()
-      if len(self.fileString)>20:
-        self.inputFileBrowserButton.setText(".." + self.fileString[-20:])
+      if len(self.fileString)>self.maximumFileNameLen:
+        self.inputFileBrowserButton.setText(".." + self.fileString[-self.maximumFileNameLen:])
 
 
   def loadFile(self):
+    """
+    Load the saved tracked data either from one file or from a directory
+    :return: None
+    """
     if not slicer.util.confirmYesNoDisplay("Current MRMLScene will be clear. Do you want to proceed?"):
       return
     self.cleanup()
@@ -325,6 +347,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     pass
 
   def loadFromSeperateFiles(self):
+    """
+    Load the saved tracked data from a directory
+    :return: None
+    """
     startLocatorIndex = 0
     for file in os.listdir(self.importDirString):
       self.fileString = os.path.join(self.importDirString, file)
@@ -333,6 +359,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     pass
 
   def loadFromOneFile(self, startLocatorIndex = 0):
+    """
+    Load the saved tracked data from one file
+    :return: None
+    """
     if os.path.isfile(self.fileString):
       with open(self.fileString, 'rb') as csvfile:
         fileReader = csv.reader(csvfile, delimiter=',',
@@ -348,21 +378,22 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
             slicer.mrmlScene.AddNode(transformNode)
             self.transformSelector[locatorIndex].setCurrentNode(transformNode)
             self.transformSelector[locatorIndex].currentNode().SetName(locatorName)
-            for trajectoryIndex in range(numTrajectoryInRow):
-              if not locatorName == row[trajectoryIndex * self.elementPerLocator]:
+            trajectoryIndex = 0
+            self.addSequenceRelatedNodesInList(locatorIndex, trajectoryIndex)
+            locatorIndexes.append(locatorIndex)
+            for index in range(1, numTrajectoryInRow):
+              if not locatorName == row[index * self.elementPerLocator]:
                 locatorIndex = locatorIndex + 1
-                locatorName = row[trajectoryIndex * self.elementPerLocator]
+                locatorName = row[index * self.elementPerLocator]
                 transformNode = slicer.vtkMRMLLinearTransformNode()
                 slicer.mrmlScene.AddNode(transformNode)
                 self.transformSelector[locatorIndex].setCurrentNode(transformNode)
                 self.transformSelector[locatorIndex].currentNode().SetName(locatorName)
+                trajectoryIndex = 0
+              else:
+                trajectoryIndex = trajectoryIndex + 1  
               locatorIndexes.append(locatorIndex)
-              seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
-              slicer.mrmlScene.AddNode(seqNode)
-              seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(locatorIndex))
-              seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-              slicer.mrmlScene.AddNode(seqBrowserNode)
-              self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+              self.addSequenceRelatedNodesInList(locatorIndex, trajectoryIndex)
           if rowIndex >= 2:
             # trajectoryIndexInLocator = -1
             for trajectoryIndex in range(numTrajectoryInRow):
@@ -384,12 +415,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                 transformNode.SetName(proxyNodeName)
                 subTrajectoryIndex = int(row[trajectoryIndex * self.elementPerLocator + 4])
                 if subTrajectoryIndex >= len(self.sequenceNodesList[locatorIndex]):
-                  seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
-                  slicer.mrmlScene.AddNode(seqNode)
-                  seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(locatorIndex))
-                  seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-                  slicer.mrmlScene.AddNode(seqBrowserNode)
-                  self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+                  self.addSequenceRelatedNodesInList(locatorIndex, subTrajectoryIndex)
                 seqNode = self.sequenceNodesList[locatorIndex][subTrajectoryIndex]
                 seqNode.SetDataNodeAtValue(transformNode, timeStamp)
                 seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(subTrajectoryIndex))
@@ -398,6 +424,10 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       slicer.util.warningDisplay("file doesn't exists!")
 
   def onSavingSeperateChannel(self):
+    """
+    Change the layout of the Export/Import section in the GUI
+    :return: None
+    """
     if self.savingSeperateChannelCheckBox.checked == True:
       self.fileNameEditor.visible = False
       self.exportLayout.addWidget(self.saveButton)
@@ -410,16 +440,65 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.exportImportFormLayout = qt.QFormLayout(self.exportImportCollapsibleButton)
       self.exportImportFormLayout.addRow("Export to directory: ", self.exportLayout)
       self.exportImportFormLayout.addRow("Export File name: ", self.saveFileLayout)
-      self.exportImportFormLayout.addRow("Import Directory: ", self.importLayout)
+      self.exportImportFormLayout.addRow("Import File name: ", self.importLayout)
 
   def saveFile(self):
+    """
+    Export the tracked data
+    :return: None
+    """
     if self.savingSeperateChannelCheckBox.checked == False:
       self.saveInOneFile()
     else:
       self.saveInDifferentFiles()
     pass
 
+  def appendValidPos(self, seqNode, posIndex, poses, removeRedundance = True):
+    """
+    Append valid pos from the sequence node to the list 'poses' if the pos specified by 'row' in the sequence node is not the same as previous pos
+    :param seqNode: Sequence node where the poses are stored.
+    :param posIndex: index of the position in the sequence node
+    :param poses: to which the valid position will append
+    :param removeRedundance: flag indicate if redundancy should be moved or not.
+    :return: Return True if the evaluated pos at the specified index is valid and added to the poses
+    """
+    posValid = True
+    transformNode = seqNode.GetNthDataNode(posIndex)
+    transMatrix = transformNode.GetMatrixTransformToParent()
+    pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
+    timeStamp = float(seqNode.GetNthIndexValue(posIndex))
+    if removeRedundance:
+      if posIndex > 0:
+        transformNode_pre = seqNode.GetNthDataNode(posIndex - 1)
+        transMatrix_pre = transformNode_pre.GetMatrixTransformToParent()
+        pos_pre = [transMatrix_pre.GetElement(0, 3), transMatrix_pre.GetElement(1, 3),
+                   transMatrix_pre.GetElement(2, 3)]
+        if numpy.linalg.norm(numpy.array(pos) - numpy.array(pos_pre)) < 1e-8:
+          posValid = False
+        else:
+          posValid = True
+    if posValid:
+      poses.append(timeStamp)
+      poses.append(pos[0])
+      poses.append(pos[1])
+      poses.append(pos[2])
+      poses.append(seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
+      poses.append(" ")
+      return True
+    return False
+
   def saveInDifferentFiles(self):
+    """
+    Save the tracked data from the different locator to different files, one file for each locator.
+    Also all the tracjectories are concatenated in to the same columns. Data structure in each file:
+    Tracker1
+    TimeStamp	X	Y	Z	TrajectoryIndex
+    xx        x x x 0
+    xx        x x x 0
+    xx        x x x 1
+    xx        x x x 1
+    :return:None
+    """
     if os.path.exists(self.exportDirString):
       for i in range(len(self.locatorNodeList)):
         if self.locatorNodeList[i] and (not self.sequenceNodesList[i] == []):
@@ -446,34 +525,24 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
             fileWriter.writerow(title)
             for j in range(len(self.sequenceNodesList[i])):
               seqNode = self.sequenceNodesList[i][j]
-              posValid = True
               for row in range(seqNode.GetNumberOfDataNodes()):
                 seqNode = self.sequenceNodesList[i][j]
-                transformNode = seqNode.GetNthDataNode(row)
-                transMatrix = transformNode.GetMatrixTransformToParent()
-                rowString = []
-                pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3) , transMatrix.GetElement(2, 3)]
-                timeStamp = float(seqNode.GetNthIndexValue(row))
-                if row > 0:
-                  transformNode_pre = seqNode.GetNthDataNode(row-1)
-                  transMatrix_pre = transformNode_pre.GetMatrixTransformToParent()        
-                  pos_pre = [transMatrix_pre.GetElement(0, 3), transMatrix_pre.GetElement(1, 3) , transMatrix_pre.GetElement(2, 3)]
-                  if numpy.linalg.norm(numpy.array(pos)-numpy.array(pos_pre)) < 1e-8:
-                    posValid = False
-                  else:  
-                    posValid = True
-                if posValid:    
-                  rowString.append(timeStamp)
-                  rowString.append(pos[0])
-                  rowString.append(pos[1])
-                  rowString.append(pos[2])
-                  rowString.append(seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
-                  rowString.append(" ")
-                  fileWriter.writerow(rowString)
+                poses = []
+                if self.appendValidPos(seqNode, row, poses, self.removeDuplicatePosCheckBox.checked):
+                  fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
 
   def saveInOneFile(self):
+    """
+    Save the tracked data from the different locator to different files, one file for each locator.
+    Also all the tracjectories are concatenated in to the same columns. Data structure in each file:
+    Tracker1  sequence1               Tracker1 sequence2                Tracker2 sequence1
+    TimeStamp	X	Y	Z	TrajectoryIndex   TimeStamp	X	Y	Z	TrajectoryIndex   TimeStamp	X	Y	Z	TrajectoryIndex
+    xx        x x x 0                 xx        x x x 1                 xx        x x x 0
+    xx        x x x 0                 xx        x x x 1                 xx        x x x 0
+    :return:None
+    """
     if os.path.exists(self.exportDirString):
       fileName = os.path.join(self.exportDirString, self.fileNameEditor.text)
       with open(fileName, 'wb') as csvfile:
@@ -503,29 +572,35 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         fileWriter.writerow(header)
         fileWriter.writerow(title)
         maxRowNum = 0
+        rowIndexes = []
         for i in validLocatorIndex:
+          number = []
           if not self.sequenceNodesList[i] == []:
             for j in range(len(self.sequenceNodesList[i])):
               seqNode = self.sequenceNodesList[i][j]
-              if seqNode.GetNumberOfDataNodes() > maxRowNum:
+              if seqNode.GetNumberOfDataNodes()> maxRowNum:
                 maxRowNum = seqNode.GetNumberOfDataNodes()
+              number.append(0)
+            rowIndexes.append(number)
         for row in range(maxRowNum):
           poses = []
           for i in validLocatorIndex:
             if not self.sequenceNodesList[i] == []:
               for j in range(len(self.sequenceNodesList[i])):
                 seqNode = self.sequenceNodesList[i][j]
-                if row < seqNode.GetNumberOfDataNodes():
-                  poses.append(str(seqNode.GetNthIndexValue(row)))
-                  seqNode = self.sequenceNodesList[i][j]
-                  transformNode = seqNode.GetNthDataNode(row)
-                  transMatrix = transformNode.GetMatrixTransformToParent()
-                  pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
-                  poses.append(str(pos[0]))
-                  poses.append(str(pos[1]))
-                  poses.append(str(pos[2]))
-                  poses.append(seqNode.GetAttribute(self.REL_TRAJECTORYINDEX_SEQ))
-                  poses.append(" ")
+                if rowIndexes[i][j] < seqNode.GetNumberOfDataNodes():
+                  while True:
+                    if self.appendValidPos(seqNode, rowIndexes[i][j], poses, self.removeDuplicatePosCheckBox.checked):
+                      break
+                    rowIndexes[i][j] = rowIndexes[i][j] + 1
+                    if rowIndexes[i][j] >= seqNode.GetNumberOfDataNodes():
+                      poses.append(" ")
+                      poses.append(" ")
+                      poses.append(" ")
+                      poses.append(" ")
+                      poses.append(" ")
+                      poses.append(" ")
+                      break
                 else:
                   poses.append(" ")
                   poses.append(" ")
@@ -533,18 +608,33 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
                   poses.append(" ")
                   poses.append(" ")
                   poses.append(" ")
+                rowIndexes[i][j] = rowIndexes[i][j] + 1
           fileWriter.writerow(poses)
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
 
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def StartCaseImportCallback(self, caller, eventId, callData):
+    """
+    When the user imports the data from MRMLScene file, the current Slicer mrmlscene will be cleared
+    :param caller: mrmlScene
+    :param eventId: slicer.vtkMRMLScene.StartImportEvent
+    :param callData: None
+    :return: none
+    """
     print("loading study")
     self.cleanup()
 
 
   @vtk.calldata_type(vtk.VTK_OBJECT)
   def LoadCaseCompletedCallback(self, caller, eventId, callData):
+    """
+    After the data import, initialize the variables in the widget from the imported data.
+    :param caller:  mrmlScene
+    :param eventId: slicer.vtkMRMLScene.EndImportEvent
+    :param callData: None
+    :return:
+    """
     print("study loaded")
     sequenceNodesList = [[],[],[],[],[]]
     sequenceBrowserNodesList = [[],[],[],[],[]]
@@ -574,27 +664,28 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     for i in range(self.nLocators):
       self.transformSelector[i].setCurrentNode(None)
 
-  def enableCurrentSelectors(self, activeIndex, active):
-    self.transformSelector[activeIndex].setEnabled(active)
-
   def enableCurrentLocator(self, activeIndex, active):
+    """
+    Enable/Disable the visualization of specific locator specified by the activeIndex.
+    :param activeIndex: the index of the locator
+    :param active: enable or disable the recording
+    :return: None
+    """
     tnode = self.transformSelector[activeIndex].currentNode()
-    if active:
-      if tnode:
-        self.logic.addLocator(tnode, self.colors[activeIndex])
-        mnodeID = tnode.GetAttribute('Locator')
-        if mnodeID != None:
+    if tnode:
+      self.transformSelector[activeIndex].setEnabled(not active)
+      self.logic.addLocator(tnode, self.colors[activeIndex])
+      mnodeID = tnode.GetAttribute('Locator')
+      if mnodeID != None:
+        if active:
           locatorNode = slicer.mrmlScene.GetNodeByID(mnodeID)
           locatorNode.SetDisplayVisibility(True)
-      else:
-        self.locatorActiveCheckBox[activeIndex].setChecked(False)
-    else:
-      if tnode:
-        mnodeID = tnode.GetAttribute('Locator')
-        if mnodeID != None:
+        else:
           locatorNode = slicer.mrmlScene.GetNodeByID(mnodeID)
           locatorNode.SetDisplayVisibility(False)
           locatorNode.RemoveNodeReferenceIDs("transform")
+    else:
+      self.locatorRecordCheckBox[activeIndex].setChecked(False)
 
   def onProcessVarianceChanged(self, value):
     self.processVariance = self.processVarianceSpinBox.value
@@ -608,7 +699,14 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def onDownSampleStepSizeChanged(self, value):
     self.downSampleStepSize = self.downSampleStepSizeSpinBox.value
     
-  def onTrajectoyIndexChanged(self, spinbox, value):  
+  def onTrajectoyIndexChanged(self, spinbox, value):
+    """
+    Response to the spinbox value change. new sequence nodes and sequence browser nodes will be created if the spinbox value is larger than the number of available sequence nodes.
+    The tracked data of the specific locator will be recorded
+    :param spinbox: The spinbox that triggers the signal.
+    :param value: value in the spinbox
+    :return:
+    """
     channelIndex = 0
     for i in range(self.nLocators):
       if self.trajectoryIndexSpinBox[i] == spinbox:
@@ -620,18 +718,12 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         locatorIndex = i    
         break
     numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-    if self.locatorActiveCheckBox[channelIndex].checked == True:
+    if self.locatorRecordCheckBox[channelIndex].checked == True:
       self.disableSpecificLocatorRecording(locatorIndex)
       if numOfSequenceNode < (value+1):
         while numOfSequenceNode < (value+1):
-          seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
-          slicer.mrmlScene.AddNode(seqNode)
-          seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(numOfSequenceNode))
-          seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-          slicer.mrmlScene.AddNode(seqBrowserNode)
-          self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+          self.addSequenceRelatedNodesInList(locatorIndex, numOfSequenceNode)
           numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-      self.sequenceNodesList[locatorIndex][value].SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(value))
       self.enableSpecificTrajectoryRecording(locatorIndex, value)
     if self.locatorReplayCheckBox[channelIndex].checked == True:
       if self.trajectoryIndexSpinBoxLastValue[channelIndex] >=0 and self.trajectoryIndexSpinBoxLastValue[channelIndex] < numOfSequenceNode:
@@ -639,15 +731,26 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       if self.trajectoryIndexSpinBox[channelIndex].value < numOfSequenceNode:
         self.enableSpecificTrajectoryReplay(locatorIndex, self.trajectoryIndexSpinBox[channelIndex].value)
     self.trajectoryIndexSpinBoxLastValue[channelIndex] = value
-
-        
     
-  def addSequenceRelatedNodesInList(self, sequenceNode, sequenceBrowserNode, locatorIndex):
-    sequenceNode.SetAttribute(self.REL_LOCATORINDEX_SEQ, "Locator " + str(locatorIndex))
+  def addSequenceRelatedNodesInList(self, locatorIndex, trajectoryIndex, sequenceNode = None, sequenceBrowserNode = None):
+    """
+    Markups fiducial will be added for storing the filted locator trajectory.
+    Model node will be added for visualization of the trajectory.
+    :param sequenceNode: Sequence node stores the tracked data
+    :param sequenceBrowserNode: Sequence browser node record or replay the tracked data
+    :param locatorIndex: The index of the locator that needs to be recorded
+    :return: None
+    """
+    if sequenceNode == None or sequenceBrowserNode == None:
+      sequenceNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
+      slicer.mrmlScene.AddNode(sequenceNode)
+      sequenceBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
+      slicer.mrmlScene.AddNode(sequenceBrowserNode)
+    sequenceNode.SetAttribute(self.REL_LOCATORINDEX_SEQ, "Locator " + str(trajectoryIndex))
+    sequenceNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(trajectoryIndex))
     if not sequenceNode.GetName()[-9:] == ("-Locator " + str(locatorIndex)):
       sequenceNode.SetName(sequenceNode.GetName() + "-Locator " + str(locatorIndex))
     self.sequenceNodesList[locatorIndex].append(sequenceNode)
-    trajectoryIndex = len(self.sequenceNodesList[locatorIndex]) - 1
     self.sequenceBrowserNodesList[locatorIndex].append(sequenceBrowserNode)
     self.sequenceBrowserNodesList[locatorIndex][trajectoryIndex].SetAttribute(self.REL_SEQNODE,
                                                                               self.sequenceNodesList[locatorIndex][
@@ -671,15 +774,19 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.curveManagersList[locatorIndex].append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
     self.curveManagersList[locatorIndex][trajectoryIndex].connectMarkerNode(self.trajectoryFidicualsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].connectModelNode(self.trajectoryModelsList[locatorIndex][trajectoryIndex])
-    self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.setTubeRadius(2.50)
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.enableAutomaticUpdate(1)
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.setInterpolationMethod(1)
+    # here we add initial point for the kalman filter. As the pCov is set to 1.0, the first tracked point will be added to trajectory.
     self.logic.filteredData[locatorIndex].append(numpy.zeros((0,0,3))) # numpy.insert(self.logic.filteredData[locatorIndex][trajectoryIndex], [0], pos, axis=0)
-
     self.logic.pCov[locatorIndex].append(1.0)
 
-  def onAddedTransNode(self, selector, addedNode):
-    addedNode.SetAttribute(self.REL_LOCATOR, "True") 
+  def onAddedTransNode(self, addedNode):
+    """
+    Adding the user added transformation node into the locatorNodeList
+    :param addedNode: Added node from GUI interaction
+    :return: None
+    """
+    addedNode.SetAttribute(self.REL_LOCATOR, "True")
     if not self.locatorNodeList == []:
       addedBefore = False
       for i in range(len(self.locatorNodeList)):
@@ -688,26 +795,13 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
           break
       if addedBefore == False:
         self.locatorNodeList.append(addedNode)
-        self.onTransNodeChange(selector, addedNode)
     else:
-      self.locatorNodeList.append(addedNode)      
-      self.onTransNodeChange(selector, addedNode)
-
-  def onTransNodeChange(self, selector, selectedNode):
-    channelIndex = 0
-    for i in range(self.nLocators):
-      if self.transformSelector[i] == selector:
-        channelIndex = i
-    locatorIndex = -1
-    for i in range(len(self.locatorNodeList)):
-      if self.transformSelector[channelIndex].currentNode() == self.locatorNodeList[i]:
-        locatorIndex = i    
-        break
+      self.locatorNodeList.append(addedNode)
 
   def onLocatorRecording(self, checkbox):
     channelIndex = 0
     for i in range(self.nLocators):
-      if self.locatorActiveCheckBox[i] == checkbox:
+      if self.locatorRecordCheckBox[i] == checkbox:
         channelIndex = i
     locatorIndex = -1
     for i in range(len(self.locatorNodeList)):
@@ -716,25 +810,18 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         break    
     trajectoryIndex = self.trajectoryIndexSpinBox[channelIndex].value
     numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
-    if (self.trajectoryIndexSpinBox[channelIndex].value + 1) > numOfSequenceNode:
-      while numOfSequenceNode < (self.trajectoryIndexSpinBox[channelIndex].value+1):
-        seqNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceNode")
-        slicer.mrmlScene.AddNode(seqNode)
-        seqNode.SetAttribute(self.REL_TRAJECTORYINDEX_SEQ, str(numOfSequenceNode))
-        seqBrowserNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLSequenceBrowserNode")
-        slicer.mrmlScene.AddNode(seqBrowserNode)
-        self.addSequenceRelatedNodesInList(seqNode, seqBrowserNode, locatorIndex)
+    if (trajectoryIndex + 1) > numOfSequenceNode:
+      while numOfSequenceNode < (trajectoryIndex + 1):
+        self.addSequenceRelatedNodesInList(locatorIndex, numOfSequenceNode)
         numOfSequenceNode = len(self.sequenceNodesList[locatorIndex])
     if trajectoryIndex > -1 and locatorIndex > -1:
       if checkbox.checked == True:
         if self.locatorReplayCheckBox[channelIndex].checked:
           self.locatorReplayCheckBox[channelIndex].click()
         self.enableCurrentLocator(channelIndex, True)
-        self.enableCurrentSelectors(channelIndex, False)
         self.enableSpecificTrajectoryRecording(locatorIndex, trajectoryIndex)
       else:
         self.enableCurrentLocator(channelIndex, False)
-        self.enableCurrentSelectors(channelIndex, True)
         self.disableSpecificLocatorRecording(locatorIndex)
 
   def enableSpecificTrajectoryRecording(self, locatorIndex, trajectoryIndex):
@@ -786,8 +873,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.trajectoryIndexSpinBoxLastValue[channelIndex] = trajectoryIndex
       if (self.trajectoryIndexSpinBox[channelIndex].value + 1) <= numOfSequenceNode:
         if checkbox.checked == True:
-          if self.locatorActiveCheckBox[channelIndex].checked:
-            self.locatorActiveCheckBox[channelIndex].click()
+          if self.locatorRecordCheckBox[channelIndex].checked:
+            self.locatorRecordCheckBox[channelIndex].click()
           self.enableCurrentLocator(channelIndex, True)
           self.enableSpecificTrajectoryReplay(locatorIndex, trajectoryIndex)
         else:
@@ -821,11 +908,6 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
           locatorIndex = i
           trajectoryIndex = j
     self.constructSpecificTrajectoryRealTime(locatorIndex, trajectoryIndex)
-  
-  def constructSpecificChannel(self, channelIndex):
-    fiducialNodeSubList = self.trajectoryFidicualsList[channelIndex]
-    for trajectoryIndex in range(len(fiducialNodeSubList)):
-      self.constructSpecificTrajectory(channelIndex, trajectoryIndex)
    
   def constructSpecificTrajectory(self, locatorIndex, trajectoryIndex):
     posAll = []
