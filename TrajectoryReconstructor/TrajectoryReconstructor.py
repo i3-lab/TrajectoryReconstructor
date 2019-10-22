@@ -25,7 +25,7 @@ class TrajectoryReconstructor(ScriptedLoadableModule):
     Trajectory path reconstruction based on tracking data.
     """
     self.parent.acknowledgementText = """
-    This work is supported by NIH National Center for Image Guided Therapy (P41EB015898).
+    This work is supported by NIH (R01EB020667 and P41EB015898).
     """ 
     # replace with organization, grant and thanks.
 
@@ -1248,10 +1248,10 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def removeLocator(self, mnodeID):
     if mnodeID:
-      print 'removeLocator(%s)' % mnodeID
+      print('removeLocator(%s)' % mnodeID)
       mnode = self.scene.GetNodeByID(mnodeID)
       if mnode:
-        print 'removing from the scene'
+        print('removing from the scene')
         dnodeID = mnode.GetDisplayNodeID()
         if dnodeID:
           dnode = self.scene.GetNodeByID(dnodeID)
