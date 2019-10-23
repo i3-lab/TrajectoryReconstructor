@@ -464,7 +464,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     """
     posValid = True
     transformNode = seqNode.GetNthDataNode(posIndex)
-    transMatrix = transformNode.GetMatrixTransformToParent()
+    transMatrix = vtk.vtkMatrix4x4()
+    transformNode.GetMatrixTransformToParent(transMatrix)
     pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
     timeStamp = float(seqNode.GetNthIndexValue(posIndex))
     if removeRedundance:
@@ -613,26 +614,22 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     else:
       slicer.util.warningDisplay("Path doesn't exists!")
 
-  @vtk.calldata_type(vtk.VTK_OBJECT)
-  def StartCaseImportCallback(self, caller, eventId, callData):
+  def StartCaseImportCallback(self, caller, eventId):
     """
     When the user imports the data from MRMLScene file, the current Slicer mrmlscene will be cleared
     :param caller: mrmlScene
     :param eventId: slicer.vtkMRMLScene.StartImportEvent
-    :param callData: None
     :return: none
     """
     print("loading study")
     self.cleanup()
 
 
-  @vtk.calldata_type(vtk.VTK_OBJECT)
-  def LoadCaseCompletedCallback(self, caller, eventId, callData):
+  def LoadCaseCompletedCallback(self, caller, eventId):
     """
     After the data import, initialize the variables in the widget from the imported data.
     :param caller:  mrmlScene
     :param eventId: slicer.vtkMRMLScene.EndImportEvent
-    :param callData: None
     :return:
     """
     print("study loaded")
@@ -896,8 +893,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     if trajectoryIndex > -1 and locatorIndex > -1:
       self.constructSpecificTrajectory(locatorIndex, trajectoryIndex)
    
-  @vtk.calldata_type(vtk.VTK_OBJECT)
-  def realTimeConstructTrajectory(self, caller, eventId, callData):
+  def realTimeConstructTrajectory(self, caller, eventId):
     locatorIndex = 0
     trajectoryIndex = 0
     numOfLocator = len(self.sequenceNodesList)
@@ -915,7 +911,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].RemoveAllMarkups()
     for index in range(seqNode.GetNumberOfDataNodes()):
       transformNode = seqNode.GetNthDataNode(index)
-      transMatrix = transformNode.GetMatrixTransformToParent()
+      transMatrix = vtk.vtkMatrix4x4()
+      transformNode.GetMatrixTransformToParent(transMatrix)
       pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
       posAll.append(pos)
     if not posAll == []:
@@ -934,7 +931,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
   def constructSpecificTrajectoryRealTime(self, locatorIndex, trajectoryIndex):
     seqNode = self.sequenceNodesList[locatorIndex][trajectoryIndex]
     transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
-    transMatrix = transformNode.GetMatrixTransformToParent()
+    transMatrix = vtk.vtkMatrix4x4()
+    transformNode.GetMatrixTransformToParent(transMatrix)
     pos = [transMatrix.GetElement(0, 3), transMatrix.GetElement(1, 3), transMatrix.GetElement(2, 3)]
     if len(self.logic.filteredData[locatorIndex][trajectoryIndex]) == 0:
       self.logic.filteredData[locatorIndex][trajectoryIndex] = numpy.array([pos])
@@ -1401,8 +1399,8 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
       pos_DownSampled = []
       pos_DownSampled.append(pos_mean[0,:])
       for index in range(step, dataLen-step, step):
-        pos_mean[index/step] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
-        if numpy.linalg.norm(pos_mean[index/step] - pos_mean[index/step-1])>movementThreshold:
+        pos_mean[int(index/step)] = numpy.array([numpy.mean(data[index:index+step, 0]), numpy.mean(data[index:index+step, 1]), numpy.mean(data[index:index+step, 2])])
+        if numpy.linalg.norm(pos_mean[int(index/step)] - pos_mean[int(index/step)-1])>movementThreshold:
           distance = -1e20
           indexMax = 0
           for indexInner in range(step):
