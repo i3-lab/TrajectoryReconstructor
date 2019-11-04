@@ -1248,10 +1248,10 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def removeLocator(self, mnodeID):
     if mnodeID:
-      print 'removeLocator(%s)' % mnodeID
+      print('removeLocator(%s)' % mnodeID)
       mnode = self.scene.GetNodeByID(mnodeID)
       if mnode:
-        print 'removing from the scene'
+        print('removing from the scene')
         dnodeID = mnode.GetDisplayNodeID()
         if dnodeID:
           dnode = self.scene.GetNodeByID(dnodeID)
