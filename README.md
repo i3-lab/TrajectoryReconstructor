@@ -1,8 +1,29 @@
+TrajectoryReconstructor
+=======================
 
-### Overview
+
+Overview
+--------
 TrajectoryReconstructor is a [3D Slicer](http://slicer.org) Module for MR tracking and trajectory reconstruction.
 ![](Screenshots/Overview.gif)
-### Usage:
+
+
+
+Installation
+------------
+TrajectoryReconstructor is currently provided only as source files. To install, obtian the code from [GitHub](https://github.com/i3-lab/TrajectoryReconstructor) or download [a zipped archive](https://github.com/i3-lab/TrajectoryReconstructor/archive/master.zip). If you use git command, you can download the code by:
+
+~~~~
+git clone https://github.com/i3-lab/TrajectoryReconstructor
+~~~~
+
+To add the module in 3D Slicer, open "Edit" -> "Application Setting" and select "Modules" in the menu on the left side of the "Setting" dialog window. Click the "Add" button in the "Additional module path" and choose the folder that contains the python script (e.g. "<Slicer module folder>/TrajectoryReconstructor/TrajectoryReconstructor"). After adding the path, you must click "OK" at the bottom right of the dialog box, and restart 3D Slicer. Note that there is a child "TrajectoryReconstructor" folder under the parent "TrajectoryReconstructor" folder, and you must specify the chlid folder. 
+
+Once 3D Slicer is restarted, you could find the module from the module list under "IGT" section.
+
+
+Usage
+-----
 1. Install the dependent [SlicerOpenIGTLink](https://github.com/openigtlink/SlicerOpenIGTLink), [Sequence](https://github.com/SlicerRt/Sequences) and [CurveMaker](https://github.com/tokjun/CurveMaker) extensions.
    If you are using Slicer Version earlier than 4.9.0, SlicerOpenIGTLink extension is not required.
 
@@ -29,11 +50,13 @@ TrajectoryReconstructor is a [3D Slicer](http://slicer.org) Module for MR tracki
     After the file is loaded, you could click reconstruct button to reconstruct the trajectory and replay the sequence.
 ![](Screenshots/Import.gif)
 
-### Disclaimer
+Disclaimer
+----------
 
-TrajectoryReconstructor, same as 3D Slicer, is a research software. **TrajectoryReconstructor is NOT an FDA-approved medical device**. It is not intended for clinical use. The user assumes full responsibility to comply with the appropriate regulations.  
+TrajectoryReconstructor is a research software. **TrajectoryReconstructor is NOT an FDA-approved medical device**. It is not intended for clinical use. The user assumes full responsibility to comply with the appropriate regulations.  
 
-### Support
+Support
+-------
 
 Please feel free to contact us for questions, feedback, suggestions, bugs, or you can create issues in the issue tracker: https://github.com/leochan2009/TrajectoryReconstructor/issues
 
@@ -42,7 +65,8 @@ Please feel free to contact us for questions, feedback, suggestions, bugs, or yo
 * [Junichi Tokuda](https://github.com/tokjun) tokuda@bwh.harvard.edu
 
 
-### Acknowledgments
+Acknowledgments
+---------------
 
 Development of TrajectoryRecontruct is supported in part by the following NIH grants: 
 * R01 EB020667 OpenIGTLink: a network communication interface for closed-loop image-guided interventions
