@@ -1281,8 +1281,8 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     
     # Cylinder represents the locator stick
     cylinder = vtk.vtkCylinderSource()
-    cylinder.SetRadius(1.5)
-    cylinder.SetHeight(100)
+    cylinder.SetRadius(0.6)
+    cylinder.SetHeight(200)
     cylinder.SetCenter(0, 0, 0)
     cylinder.Update()
 
@@ -1290,7 +1290,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     tfilter = vtk.vtkTransformPolyDataFilter()
     trans =   vtk.vtkTransform()
     trans.RotateX(90.0)
-    trans.Translate(0.0, -50.0, 0.0)
+    trans.Translate(0.0, -100.0, 0.0)
     trans.Update()
     if vtk.VTK_MAJOR_VERSION <= 5:
       tfilter.SetInput(cylinder.GetOutput())
@@ -1301,7 +1301,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
     # Sphere represents the locator tip
     sphere = vtk.vtkSphereSource()
-    sphere.SetRadius(3.0)
+    sphere.SetRadius(1.5)
     sphere.SetCenter(0, 0, 0)
     sphere.Update()
 
