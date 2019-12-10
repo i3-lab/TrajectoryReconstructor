@@ -768,11 +768,12 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     modelNode.CreateDefaultDisplayNodes()
     modelNode.GetDisplayNode().SetOpacity(0.5)
     modelNode.GetDisplayNode().SetColor(self.colors[locatorIndex])
-    self.curveManagersList[locatorIndex].append(self.logic.createNeedleTrajBaseOnCurveMaker(""))
+    
+    self.curveManagersList[locatorIndex].append(self.logic.createNeedleTrajBaseOnCurveMaker("Traj"))
     self.curveManagersList[locatorIndex][trajectoryIndex].connectMarkerNode(self.trajectoryFidicualsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].connectModelNode(self.trajectoryModelsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.enableAutomaticUpdate(1)
-    self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.setInterpolationMethod(1)
+    self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.setInterpolationMethod('cardinal')
     # here we add initial point for the kalman filter. As the pCov is set to 1.0, the first tracked point will be added to trajectory.
     self.logic.filteredData[locatorIndex].append(numpy.zeros((0,0,3))) # numpy.insert(self.logic.filteredData[locatorIndex][trajectoryIndex], [0], pos, axis=0)
     self.logic.pCov[locatorIndex].append(1.0)
@@ -922,8 +923,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         for pos in resampledPos:
           self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].AddFiducialFromArray(pos)
           self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].SetNthFiducialLabel(index, "")   
-        self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel
-        self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[locatorIndex][trajectoryIndex].curveFiducials
+        #self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel
+        #self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[locatorIndex][trajectoryIndex].curveFiducials
         self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.updateCurve()
         self.curveManagersList[locatorIndex][trajectoryIndex].lockLine()
         self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
@@ -948,8 +949,8 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         fiducialNum = self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].GetNumberOfFiducials()
         self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].SetNthFiducialLabel(fiducialNum-1, "")
         if self.trajectoryFidicualsList[locatorIndex][trajectoryIndex].GetNumberOfFiducials()>1:
-          self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel
-          self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[locatorIndex][trajectoryIndex].curveFiducials
+          #self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.DestinationNode = self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel
+          #self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.SourceNode = self.curveManagersList[locatorIndex][trajectoryIndex].curveFiducials
           self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.updateCurve()
           self.curveManagersList[locatorIndex][trajectoryIndex].lockLine()
     
@@ -972,7 +973,8 @@ class CurveManager():
       return slicer.util.warningDisplay(
         "Error: Could not find extension CurveMaker. Open Slicer Extension Manager and install "
         "CurveMaker.", "Missing Extension")
-    self.cmLogic = CurveMaker.CurveMakerLogic()
+    #self.cmLogic = CurveMaker.CurveMakerLogic()
+    self.cmLogic = None
     self.curveFiducials = None
     self._curveModel = None
     self.opacity = 1
@@ -1010,6 +1012,10 @@ class CurveManager():
       slicer.mrmlScene.RemoveNode(self.curveFiducials)
     self.curveFiducials = mrmlMarkerNode
 
+
+  def setCurveMakerLogic(self, logic):
+    self.cmLogic = logic
+    
   def setName(self, name):
     self.curveName = name
     self.curveModelName = "%s-Model" % (name)
@@ -1106,17 +1112,20 @@ class CurveManager():
     if self.tagEventExternal == None and self.externalHandler:
       self.tagEventExternal = self._curveModel.AddObserver(vtk.vtkCommand.ModifiedEvent, self.externalHandler)
 
-    self.cmLogic.DestinationNode = self._curveModel
-    self.cmLogic.SourceNode = self.curveFiducials
-    self.cmLogic.SourceNode.SetAttribute('CurveMaker.CurveModel', self.cmLogic.DestinationNode.GetID())
+    #self.cmLogic.DestinationNode = self._curveModel
+    #self.cmLogic.SourceNode = self.curveFiducials
+    #self.cmLogic.SourceNode.SetAttribute('CurveMaker.CurveModel', self.cmLogic.DestinationNode.GetID())
+    self.curveFiducials.SetAttribute('CurveMaker.CurveModel', self._curveModel.GetID())
+    self.cmLogic.setSourceNodeObserver(self.curveFiducials, True)
+    self.cmLogic.updateObservers()
     self.cmLogic.updateCurve()
 
-    self.cmLogic.CurvePoly = vtk.vtkPolyData()  ## For CurveMaker bug
+    #self.cmLogic.CurvePoly = vtk.vtkPolyData()  ## For CurveMaker bug
     self.cmLogic.enableAutomaticUpdate(1)
     self.cmLogic.setInterpolationMethod(1)
     self.cmLogic.setTubeRadius(self.tubeRadius)
 
-    self.tagSourceNode = self.cmLogic.SourceNode.AddObserver('ModifiedEvent', self.onLineSourceUpdated)
+    #self.tagSourceNode = self.cmLogic.SourceNode.AddObserver('ModifiedEvent', self.onLineSourceUpdated)
 
   def endEditLine(self):
 
@@ -1215,6 +1224,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
     self.widget = None
 
     self.eventTag = {}
+    self.cmLogic = CurveMaker.CurveMakerLogic()
 
     # IGTL Conenctor Node ID
     self.connectorNodeID = ''
@@ -1270,6 +1280,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
 
   def createNeedleTrajBaseOnCurveMaker(self, name):
     curveManager = CurveManager()
+    curveManager.setCurveMakerLogic(self.cmLogic)
     curveManager.setName(name)
     curveManager.setDefaultSlicePositionToFirstPoint()
     curveManager.setModelColor(1.0, 1.0, 0.5)
