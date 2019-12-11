@@ -765,11 +765,14 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     modelNode.SetAttribute(self.REL_LOCATORINDEX_MODEL, "Locator " + str(locatorIndex))
     self.trajectoryModelsList[locatorIndex].append(modelNode)
     slicer.mrmlScene.AddNode(modelNode)
+    fiducialNode.SetAttribute('CurveMaker.CurveModel', modelNode.GetID())
+        
     modelNode.CreateDefaultDisplayNodes()
     modelNode.GetDisplayNode().SetOpacity(0.5)
     modelNode.GetDisplayNode().SetColor(self.colors[locatorIndex])
     
-    self.curveManagersList[locatorIndex].append(self.logic.createNeedleTrajBaseOnCurveMaker("Traj"))
+    self.curveManagersList[locatorIndex].append(self.logic.createNeedleTrajBasedOnCurveMaker("Traj"))
+
     self.curveManagersList[locatorIndex][trajectoryIndex].connectMarkerNode(self.trajectoryFidicualsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].connectModelNode(self.trajectoryModelsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.enableAutomaticUpdate(1)
@@ -1008,10 +1011,11 @@ class CurveManager():
 
   def connectMarkerNode(self, mrmlMarkerNode):
     if self.curveFiducials:
+      self.cmLogic.setSourceNodeObserver(self.curveFiducials, False)
       slicer.mrmlScene.RemoveNode(self.curveFiducials.GetDisplayNode())
       slicer.mrmlScene.RemoveNode(self.curveFiducials)
     self.curveFiducials = mrmlMarkerNode
-
+    self.cmLogic.setSourceNodeObserver(self.curveFiducials, True)
 
   def setCurveMakerLogic(self, logic):
     self.cmLogic = logic
@@ -1084,120 +1088,120 @@ class CurveManager():
       if dnode:
         dnode.SetSliceIntersectionVisibility(1)
 
-  def startEditLine(self, initPoint=None):
+#  def startEditLine(self, initPoint=None):
+#
+#    if self.curveFiducials == None:
+#      self.curveFiducials = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode")
+#      self.curveFiducials.SetName(self.curveName)
+#      slicer.mrmlScene.AddNode(self.curveFiducials)
+#      dnode = self.curveFiducials.GetMarkupsDisplayNode()
+#      if dnode:
+#        dnode.SetSelectedColor(self.cmLogic.ModelColor)
+#    if initPoint != None:
+#      self.curveFiducials.AddFiducial(initPoint[0], initPoint[1], initPoint[2])
+#      self.moveSliceToLine()
+#
+#    if self._curveModel == None:
+#      self._curveModel = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode")
+#      self._curveModel.SetName(self.curveModelName)
+#      self.setModelOpacity(self.opacity)
+#      slicer.mrmlScene.AddNode(self._curveModel)
+#      modelDisplayNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelDisplayNode")
+#      modelDisplayNode.SetColor(self.cmLogic.ModelColor)
+#      modelDisplayNode.SetOpacity(self.opacity)
+#      slicer.mrmlScene.AddNode(modelDisplayNode)
+#      self._curveModel.SetAndObserveDisplayNodeID(modelDisplayNode.GetID())
+#
+#    # Set exetrnal handler, if it has not been.
+#    if self.tagEventExternal == None and self.externalHandler:
+#      self.tagEventExternal = self._curveModel.AddObserver(vtk.vtkCommand.ModifiedEvent, self.externalHandler)
+#
+#    #self.cmLogic.DestinationNode = self._curveModel
+#    #self.cmLogic.SourceNode = self.curveFiducials
+#    #self.cmLogic.SourceNode.SetAttribute('CurveMaker.CurveModel', self.cmLogic.DestinationNode.GetID())
+#    self.curveFiducials.SetAttribute('CurveMaker.CurveModel', self._curveModel.GetID())
+#    self.cmLogic.setSourceNodeObserver(self.curveFiducials, True)
+#    self.cmLogic.updateObservers()
+#    self.cmLogic.updateCurve()
+#
+#    #self.cmLogic.CurvePoly = vtk.vtkPolyData()  ## For CurveMaker bug
+#    self.cmLogic.enableAutomaticUpdate(1)
+#    self.cmLogic.setInterpolationMethod(1)
+#    self.cmLogic.setTubeRadius(self.tubeRadius)
+#
+#    #self.tagSourceNode = self.cmLogic.SourceNode.AddObserver('ModifiedEvent', self.onLineSourceUpdated)
 
-    if self.curveFiducials == None:
-      self.curveFiducials = slicer.mrmlScene.CreateNodeByClass("vtkMRMLMarkupsFiducialNode")
-      self.curveFiducials.SetName(self.curveName)
-      slicer.mrmlScene.AddNode(self.curveFiducials)
-      dnode = self.curveFiducials.GetMarkupsDisplayNode()
-      if dnode:
-        dnode.SetSelectedColor(self.cmLogic.ModelColor)
-    if initPoint != None:
-      self.curveFiducials.AddFiducial(initPoint[0], initPoint[1], initPoint[2])
-      self.moveSliceToLine()
+#  def endEditLine(self):
+#
+#    interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
+#    interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)  ## Turn off
 
-    if self._curveModel == None:
-      self._curveModel = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelNode")
-      self._curveModel.SetName(self.curveModelName)
-      self.setModelOpacity(self.opacity)
-      slicer.mrmlScene.AddNode(self._curveModel)
-      modelDisplayNode = slicer.mrmlScene.CreateNodeByClass("vtkMRMLModelDisplayNode")
-      modelDisplayNode.SetColor(self.cmLogic.ModelColor)
-      modelDisplayNode.SetOpacity(self.opacity)
-      slicer.mrmlScene.AddNode(modelDisplayNode)
-      self._curveModel.SetAndObserveDisplayNodeID(modelDisplayNode.GetID())
+#  def clearLine(self):
+#
+#    if self.curveFiducials:
+#      self.curveFiducials.RemoveAllMarkups()
+#      # To trigger the initializaton, when the user clear the trajectory and restart the planning,
+#      # the last point of the coronal reference line should be added to the trajectory
+#
+#    self.cmLogic.updateCurve()
+#
+#    if self._curveModel:
+#      pdata = self._curveModel.GetPolyData()
+#      if pdata:
+#        pdata.Initialize()
 
-    # Set exetrnal handler, if it has not been.
-    if self.tagEventExternal == None and self.externalHandler:
-      self.tagEventExternal = self._curveModel.AddObserver(vtk.vtkCommand.ModifiedEvent, self.externalHandler)
+#  def getLength(self):
+#
+#    return self.cmLogic.CurveLength
 
-    #self.cmLogic.DestinationNode = self._curveModel
-    #self.cmLogic.SourceNode = self.curveFiducials
-    #self.cmLogic.SourceNode.SetAttribute('CurveMaker.CurveModel', self.cmLogic.DestinationNode.GetID())
-    self.curveFiducials.SetAttribute('CurveMaker.CurveModel', self._curveModel.GetID())
-    self.cmLogic.setSourceNodeObserver(self.curveFiducials, True)
-    self.cmLogic.updateObservers()
-    self.cmLogic.updateCurve()
+#  def getFirstPoint(self, position):
+#
+#    if self.curveFiducials == None:
+#      return False
+#    elif self.curveFiducials.GetNumberOfFiducials() == 0:
+#      return False
+#    else:
+#      self.curveFiducials.GetNthFiducialPosition(0, position)
+#      return True
+#
+#  def getLastPoint(self, position):
+#    if self.curveFiducials == None:
+#      return False
+#    else:
+#      nFiducials = self.curveFiducials.GetNumberOfFiducials()
+#      if nFiducials == 0:
+#        return False
+#      else:
+#        self.curveFiducials.GetNthFiducialPosition(nFiducials - 1, position)
+#        return True
 
-    #self.cmLogic.CurvePoly = vtk.vtkPolyData()  ## For CurveMaker bug
-    self.cmLogic.enableAutomaticUpdate(1)
-    self.cmLogic.setInterpolationMethod(1)
-    self.cmLogic.setTubeRadius(self.tubeRadius)
-
-    #self.tagSourceNode = self.cmLogic.SourceNode.AddObserver('ModifiedEvent', self.onLineSourceUpdated)
-
-  def endEditLine(self):
-
-    interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
-    interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)  ## Turn off
-
-  def clearLine(self):
-
-    if self.curveFiducials:
-      self.curveFiducials.RemoveAllMarkups()
-      # To trigger the initializaton, when the user clear the trajectory and restart the planning,
-      # the last point of the coronal reference line should be added to the trajectory
-
-    self.cmLogic.updateCurve()
-
-    if self._curveModel:
-      pdata = self._curveModel.GetPolyData()
-      if pdata:
-        pdata.Initialize()
-
-  def getLength(self):
-
-    return self.cmLogic.CurveLength
-
-  def getFirstPoint(self, position):
-
-    if self.curveFiducials == None:
-      return False
-    elif self.curveFiducials.GetNumberOfFiducials() == 0:
-      return False
-    else:
-      self.curveFiducials.GetNthFiducialPosition(0, position)
-      return True
-
-  def getLastPoint(self, position):
-    if self.curveFiducials == None:
-      return False
-    else:
-      nFiducials = self.curveFiducials.GetNumberOfFiducials()
-      if nFiducials == 0:
-        return False
-      else:
-        self.curveFiducials.GetNthFiducialPosition(nFiducials - 1, position)
-        return True
-
-  def moveSliceToLine(self):
-
-    viewer = slicer.mrmlScene.GetNodeByID(self.sliceID)
-
-    if viewer == None:
-      return
-
-    if self.curveFiducials.GetNumberOfFiducials() == 0:
-      return
-
-    if self.slicePosition == 0:
-      index = 0
-    else:
-      index = self.curveFiducials.GetNumberOfFiducials() - 1
-
-    pos = [0.0] * 3
-    self.curveFiducials.GetNthFiducialPosition(index, pos)
-
-    if self.sliceID == "vtkMRMLSliceNodeRed":
-      viewer.SetOrientationToAxial()
-      viewer.SetSliceOffset(pos[2])
-    elif self.sliceID == "vtkMRMLSliceNodeYellow":
-      viewer.SetOrientationToSagittal()
-      viewer.SetSliceOffset(pos[0])
-    elif self.sliceID == "vtkMRMLSliceNodeGreen":
-      viewer.SetOrientationToCoronal()
-      viewer.SetSliceOffset(pos[1])
+#  def moveSliceToLine(self):
+#
+#    viewer = slicer.mrmlScene.GetNodeByID(self.sliceID)
+#
+#    if viewer == None:
+#      return
+#
+#    if self.curveFiducials.GetNumberOfFiducials() == 0:
+#      return
+#
+#    if self.slicePosition == 0:
+#      index = 0
+#    else:
+#      index = self.curveFiducials.GetNumberOfFiducials() - 1
+#
+#    pos = [0.0] * 3
+#    self.curveFiducials.GetNthFiducialPosition(index, pos)
+#
+#    if self.sliceID == "vtkMRMLSliceNodeRed":
+#      viewer.SetOrientationToAxial()
+#      viewer.SetSliceOffset(pos[2])
+#    elif self.sliceID == "vtkMRMLSliceNodeYellow":
+#      viewer.SetOrientationToSagittal()
+#      viewer.SetSliceOffset(pos[0])
+#    elif self.sliceID == "vtkMRMLSliceNodeGreen":
+#      viewer.SetOrientationToCoronal()
+#      viewer.SetSliceOffset(pos[1])
 
   def lockLine(self):
 
@@ -1278,7 +1282,7 @@ class TrajectoryReconstructorLogic(ScriptedLoadableModuleLogic):
           needleModel.SetAndObserveTransformNodeID(tnode.GetID())
           needleModel.InvokeEvent(slicer.vtkMRMLTransformableNode.TransformModifiedEvent)
 
-  def createNeedleTrajBaseOnCurveMaker(self, name):
+  def createNeedleTrajBasedOnCurveMaker(self, name):
     curveManager = CurveManager()
     curveManager.setCurveMakerLogic(self.cmLogic)
     curveManager.setName(name)
