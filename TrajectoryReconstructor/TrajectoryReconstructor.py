@@ -59,7 +59,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.processVariance = 5e-5
     self.measurementVariance = 0.0004
     self.movementThreshold = 1.0 # in millimeter
-    self.downSampleStepSize = 10
+    self.downSampleStepSize = 1
 
     self.sequenceBrowserWidget = slicer.modules.sequencebrowser.widgetRepresentation()
     self.replayButton = self.sequenceBrowserWidget.findChild("QPushButton","pushButton_VcrPlayPause")
@@ -109,31 +109,31 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.realTimeReconstructCheckBox.setChecked(True)
     self.processVarianceSpinBox = qt.QDoubleSpinBox()
     self.processVarianceSpinBox.setDecimals(6)
-    self.processVarianceSpinBox.setValue(5e-5)
+    self.processVarianceSpinBox.setValue(self.processVariance)
     self.processVarianceSpinBox.setSingleStep(1e-5)
     self.processVarianceSpinBox.setToolTip("Related to the pocess noise level")
-    self.processVarianceSpinBox.connect('valueChanged(double)', self.onProcessVarianceChanged)
+    self.processVarianceSpinBox.valueChanged.connect(self.onProcessVarianceChanged)
     self.measurementVarianceSpinBox = qt.QDoubleSpinBox()
     self.measurementVarianceSpinBox.setDecimals(4)
-    self.measurementVarianceSpinBox.setValue(0.001)
+    self.measurementVarianceSpinBox.setValue(self.measurementVariance)
     self.measurementVarianceSpinBox.setSingleStep(0.001)
     self.measurementVarianceSpinBox.setToolTip("Related to the measurement noise level")
-    self.measurementVarianceSpinBox.connect('valueChanged(double)', self.onMeasurementVarianceChanged)
+    self.measurementVarianceSpinBox.valueChanged.connect(self.onMeasurementVarianceChanged)
     self.movementThresholdSpinBox = qt.QDoubleSpinBox()
-    self.movementThresholdSpinBox.setValue(1.0)
+    self.movementThresholdSpinBox.setValue(self.movementThreshold)
     self.movementThresholdSpinBox.setDecimals(2)
     self.movementThresholdSpinBox.setMinimum(0.0)
     self.movementThresholdSpinBox.setSingleStep(0.5)
     self.movementThresholdSpinBox.setToolTip("The threshold for needle movement to be sampled. \
                                               A moving window with certain size will process the data and only add the data to the downsample sequence \
                                               if the distance to the previouse window section is larger than the threshold")
-    self.movementThresholdSpinBox.connect('valueChanged(double)', self.onMovementThresholdChanged)
+    self.movementThresholdSpinBox.valueChanged.connect(self.onMovementThresholdChanged)
     self.downSampleStepSizeSpinBox = qt.QSpinBox()
-    self.downSampleStepSizeSpinBox.setValue(10)
+    self.downSampleStepSizeSpinBox.setValue(self.downSampleStepSize)
     self.downSampleStepSizeSpinBox.setMinimum(1)
     self.downSampleStepSizeSpinBox.setSingleStep(1)
     self.downSampleStepSizeSpinBox.setToolTip("Moving window size for downsampling, this variable is used in combination with the movement threshold")
-    self.downSampleStepSizeSpinBox.connect('valueChanged(double)', self.onDownSampleStepSizeChanged)
+    self.downSampleStepSizeSpinBox.valueChanged.connect(self.onDownSampleStepSizeChanged)
 
     self.savingSeperateChannelCheckBox = qt.QCheckBox()
     self.savingSeperateChannelCheckBox.connect(qt.SIGNAL("clicked()"), self.onSavingSeperateChannel)
@@ -190,7 +190,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
       self.trajectoryIndexSpinBox[i].setMinimum(0)
       self.trajectoryIndexSpinBox[i].setSingleStep(1)
       selectorLayout.addWidget(self.trajectoryIndexSpinBox[i])
-      self.trajectoryIndexSpinBox[i].connect('valueChanged(int)', partial(self.onTrajectoyIndexChanged, self.trajectoryIndexSpinBox[i]))
+      self.trajectoryIndexSpinBox[i].valueChanged.connect(partial(self.onTrajectoyIndexChanged, self.trajectoryIndexSpinBox[i]))
       
       self.locatorReplayCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorReplayCheckBox[i]
@@ -695,7 +695,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
 
   def onDownSampleStepSizeChanged(self, value):
     self.downSampleStepSize = self.downSampleStepSizeSpinBox.value
-    
+
   def onTrajectoyIndexChanged(self, spinbox, value):
     """
     Response to the spinbox value change. new sequence nodes and sequence browser nodes will be created if the spinbox value is larger than the number of available sequence nodes.
@@ -777,6 +777,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
     self.curveManagersList[locatorIndex][trajectoryIndex].connectModelNode(self.trajectoryModelsList[locatorIndex][trajectoryIndex])
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.enableAutomaticUpdate(1)
     self.curveManagersList[locatorIndex][trajectoryIndex].cmLogic.setInterpolationMethod('cardinal')
+    
     # here we add initial point for the kalman filter. As the pCov is set to 1.0, the first tracked point will be added to trajectory.
     self.logic.filteredData[locatorIndex].append(numpy.zeros((0,0,3))) # numpy.insert(self.logic.filteredData[locatorIndex][trajectoryIndex], [0], pos, axis=0)
     self.logic.pCov[locatorIndex].append(1.0)
@@ -933,6 +934,7 @@ class TrajectoryReconstructorWidget(ScriptedLoadableModuleWidget):
         self.curveManagersList[locatorIndex][trajectoryIndex]._curveModel.SetDisplayVisibility(True)
 
   def constructSpecificTrajectoryRealTime(self, locatorIndex, trajectoryIndex):
+
     seqNode = self.sequenceNodesList[locatorIndex][trajectoryIndex]
     transformNode = seqNode.GetNthDataNode(seqNode.GetNumberOfDataNodes()-1)
     transMatrix = vtk.vtkMatrix4x4()
@@ -1016,6 +1018,7 @@ class CurveManager():
       slicer.mrmlScene.RemoveNode(self.curveFiducials)
     self.curveFiducials = mrmlMarkerNode
     self.cmLogic.setSourceNodeObserver(self.curveFiducials, True)
+    self.cmLogic.setTubeRadius(self.tubeRadius, self.curveFiducials)
 
   def setCurveMakerLogic(self, logic):
     self.cmLogic = logic
@@ -1059,6 +1062,7 @@ class CurveManager():
 
   def setManagerTubeRadius(self, radius):
     self.tubeRadius = radius
+    self.cmLogic.setTubeRadius(self.tubeRadius, self.curveFiducials)
 
   def setModifiedEventHandler(self, handler=None):
 
@@ -1078,15 +1082,15 @@ class CurveManager():
     self.externalHandler = None
     self.tagEventExternal = None
 
-  def onLineSourceUpdated(self, caller=None, event=None):
-
-    self.cmLogic.updateCurve()
-
-    # Make slice intersetion visible
-    if self._curveModel:
-      dnode = self._curveModel.GetDisplayNode()
-      if dnode:
-        dnode.SetSliceIntersectionVisibility(1)
+#  def onLineSourceUpdated(self, caller=None, event=None):
+#
+#    self.cmLogic.updateCurve()
+#
+#    # Make slice intersetion visible
+#    if self._curveModel:
+#      dnode = self._curveModel.GetDisplayNode()
+#      if dnode:
+#        dnode.SetSliceIntersectionVisibility(1)
 
 #  def startEditLine(self, initPoint=None):
 #
